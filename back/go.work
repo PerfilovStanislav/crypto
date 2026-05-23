@@ -1,0 +1,9 @@
+go 1.25.0
+
+use (
+	src
+	src/clickhouse
+	src/config
+	src/logger
+	src/shutdown
+)
