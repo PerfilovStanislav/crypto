@@ -1,6 +1,7 @@
 package main
 
 import (
+	"analyzer"
 	"clickhouse"
 	"context"
 	"encoding/json"
@@ -225,7 +226,7 @@ func saveCandles(ctx context.Context, conn driver.Conn, candles []Candle) error 
 	}
 
 	for _, c := range candles {
-		err := batch.Append(
+		err = batch.Append(
 			c.Symbol,
 			c.Timeframe,
 			c.Timestamp,
@@ -240,7 +241,7 @@ func saveCandles(ctx context.Context, conn driver.Conn, candles []Candle) error 
 		}
 	}
 
-	if err := batch.Send(); err != nil {
+	if err = batch.Send(); err != nil {
 		return fmt.Errorf("send batch failed: %w", err)
 	}
 
@@ -248,27 +249,22 @@ func saveCandles(ctx context.Context, conn driver.Conn, candles []Candle) error 
 }
 
 // loadMarketData queries database for quotes of selected currency and timeframe for last 2 years.
-func loadMarketData(ctx context.Context, ch *clickhouse.Client, symbol, timeframe string) (
-	timestamps []time.Time,
-	lows []float64,
-	opens []float64,
-	closes []float64,
-	highs []float64,
-	volumes []float64,
-	err error,
-) {
-	twoYearsAgo := time.Now().AddDate(-2, 0, 0)
+func loadMarketData(ctx context.Context, ch *clickhouse.Client, symbol, timeframe string) (analyzer.Quotes, error) {
+	//period := time.Now().AddDate(-2, 0, 0)
+	period := time.Now().AddDate(0, 0, -20)
 	query := `
 		SELECT timestamp, low, open, close, high, volume 
 		FROM "default".market_data 
 		WHERE symbol = ? AND timeframe = ? AND timestamp >= ?
 		ORDER BY timestamp
 	`
-	rows, err := ch.Conn().Query(ctx, query, symbol, timeframe, twoYearsAgo)
+	rows, err := ch.Conn().Query(ctx, query, symbol, timeframe, period)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to query market data: %w", err)
+		return analyzer.Quotes{}, fmt.Errorf("failed to query market data: %w", err)
 	}
 	defer rows.Close()
+
+	var res analyzer.Quotes
 
 	for rows.Next() {
 		var (
@@ -276,19 +272,19 @@ func loadMarketData(ctx context.Context, ch *clickhouse.Client, symbol, timefram
 			low, open, closeVal, high, volume float64
 		)
 		if err = rows.Scan(&ts, &low, &open, &closeVal, &high, &volume); err != nil {
-			return nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to scan row: %w", err)
+			return analyzer.Quotes{}, fmt.Errorf("failed to scan row: %w", err)
 		}
-		timestamps = append(timestamps, ts)
-		lows = append(lows, low)
-		opens = append(opens, open)
-		closes = append(closes, closeVal)
-		highs = append(highs, high)
-		volumes = append(volumes, volume)
+		res.Timestamps = append(res.Timestamps, ts)
+		res.Lows = append(res.Lows, low)
+		res.Opens = append(res.Opens, open)
+		res.Closes = append(res.Closes, closeVal)
+		res.Highs = append(res.Highs, high)
+		res.Volumes = append(res.Volumes, volume)
 	}
 
 	if err = rows.Err(); err != nil {
-		return nil, nil, nil, nil, nil, nil, fmt.Errorf("error during row iteration: %w", err)
+		return analyzer.Quotes{}, fmt.Errorf("error during row iteration: %w", err)
 	}
 
-	return timestamps, lows, opens, closes, highs, volumes, nil
+	return res, nil
 }

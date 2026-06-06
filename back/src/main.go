@@ -1,6 +1,7 @@
 package main
 
 import (
+	"analyzer"
 	"clickhouse"
 	"config"
 	"context"
@@ -56,29 +57,19 @@ func run() error {
 	}
 	log.Info("market data sync completed successfully")
 
-	// Загрузка данных за последние 2 года в 6 массивов
+	// Загрузка данных за последние 2 года в структуру Quotes
 	log.Info("loading market data for the last 2 years from clickhouse...")
-	timestamps, lows, opens, closes, highs, volumes, err := loadMarketData(ctx, ch, "SOLUSDT", "4h")
+	quotes, err := loadMarketData(ctx, ch, "SOLUSDT", "4h")
 	if err != nil {
 		return fmt.Errorf("failed to load market data: %w", err)
 	}
 
-	log.Info("successfully loaded data into 6 slices",
-		"timestamps_count", len(timestamps),
-		"lows_count", len(lows),
-		"opens_count", len(opens),
-		"closes_count", len(closes),
-		"highs_count", len(highs),
-		"volumes_count", len(volumes),
-	)
-	if len(timestamps) > 0 {
-		log.Info("data slice samples",
-			"first_ts", timestamps[0].Format("2006-01-02 15:04:05"),
-			"first_close", closes[0],
-			"last_ts", timestamps[len(timestamps)-1].Format("2006-01-02 15:04:05"),
-			"last_close", closes[len(closes)-1],
-		)
-	}
+	// Инициализация сервиса Analyzer и проведение анализа котировок
+	log.Info("initializing analyzer service...")
+	az := analyzer.New(quotes)
+	az.Run()
+
+	stop()
 
 	<-gCtx.Done()
 	stop()
