@@ -1,4 +1,4 @@
-package analyzer
+package indicator
 
 func calculateTemaZero(prices []float64, multiplier float64) []float64 {
 	tema1 := calculateTema(prices, multiplier)

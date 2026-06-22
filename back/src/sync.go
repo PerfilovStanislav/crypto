@@ -3,6 +3,7 @@ package main
 import (
 	"analyzer"
 	"clickhouse"
+	"config"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -36,13 +37,13 @@ type Candle struct {
 	Volume    float64
 }
 
-// syncMarketData queries ClickHouse for the maximum timestamp, fetches missing
-// historical SOLUSDT H4 quotes from Bybit, and batch inserts them back.
-func syncMarketData(ctx context.Context, ch *clickhouse.Client, log *logger.Logger) error {
+func syncMarketData(ctx context.Context, ch *clickhouse.Client, log *logger.Logger, cfg config.AnalyzerConfig) error {
 	var maxTime time.Time
 	err := ch.Conn().QueryRow(ctx, `
-		SELECT max(timestamp) FROM "default".market_data WHERE symbol = ? AND timeframe = ?
-	`, "SOLUSDT", "4h").Scan(&maxTime)
+		SELECT max(timestamp) 
+		FROM "default".market_data 
+		WHERE symbol = ? AND timeframe = ?
+	`, cfg.Pair, cfg.Timeframe).Scan(&maxTime)
 	if err != nil {
 		return fmt.Errorf("failed to query max timestamp: %w", err)
 	}
@@ -64,14 +65,12 @@ func syncMarketData(ctx context.Context, ch *clickhouse.Client, log *logger.Logg
 		return nil
 	}
 
-	log.Info("syncing SOLUSDT 4h klines from bybit...", "from", startTime.Format("2006-01-02 15:04:05"), "to", time.Now().Format("2006-01-02 15:04:05"))
-
 	currentEndMs := targetEndMs
 	var allCandles [][]string
 
 	for currentEndMs > targetStartMs {
 		log.Info("fetching batch from bybit kline API...", "end_time", time.UnixMilli(currentEndMs).UTC().Format("2006-01-02 15:04:05"))
-		candles, err := fetchBybitKlines("SOLUSDT", "240", targetStartMs, currentEndMs)
+		candles, err := fetchBybitKlines(cfg.Pair, cfg.Timeframe, targetStartMs, currentEndMs)
 		if err != nil {
 			return fmt.Errorf("failed to fetch klines from bybit: %w", err)
 		}
@@ -141,7 +140,7 @@ func fetchBybitKlines(symbol, interval string, startMs, endMs int64) ([][]string
 	q := u.Query()
 	q.Set("category", "spot")
 	q.Set("symbol", symbol)
-	q.Set("interval", interval)
+	q.Set("interval", IntervalToMinutes(interval))
 	q.Set("limit", "1000")
 	q.Set("start", strconv.FormatInt(startMs, 10))
 	q.Set("end", strconv.FormatInt(endMs, 10))
@@ -167,6 +166,22 @@ func fetchBybitKlines(symbol, interval string, startMs, endMs int64) ([][]string
 	}
 
 	return apiResp.Result.List, nil
+}
+
+var intervals = map[string]int{
+	"1m":  1,
+	"5m":  5,
+	"15m": 15,
+	"30m": 30,
+	"1h":  60,
+	"4h":  240,
+	"1d":  1440,
+	"1w":  10080,
+}
+
+func IntervalToMinutes(interval string) string {
+	v, _ := intervals[interval]
+	return strconv.Itoa(v)
 }
 
 // parseCandle converts Bybit API candle array to a Candle struct.
@@ -220,7 +235,9 @@ func parseCandle(raw []string) (Candle, error) {
 
 // saveCandles uses clickhouse-go native Batch API to insert candles.
 func saveCandles(ctx context.Context, conn driver.Conn, candles []Candle) error {
-	batch, err := conn.PrepareBatch(ctx, "INSERT INTO default.market_data (symbol, timeframe, timestamp, low, open, close, high, volume)")
+	batch, err := conn.PrepareBatch(ctx, `
+		INSERT INTO default.market_data (symbol, timeframe, timestamp, low, open, close, high, volume)
+	`)
 	if err != nil {
 		return fmt.Errorf("prepare batch failed: %w", err)
 	}
@@ -248,10 +265,9 @@ func saveCandles(ctx context.Context, conn driver.Conn, candles []Candle) error 
 	return nil
 }
 
-// loadMarketData queries database for quotes of selected currency and timeframe for last 2 years.
 func loadMarketData(ctx context.Context, ch *clickhouse.Client, symbol, timeframe string) (analyzer.Quotes, error) {
 	//period := time.Now().AddDate(-2, 0, 0)
-	period := time.Now().AddDate(0, 0, -20)
+	period := time.Now().AddDate(-2, 0, 0)
 	query := `
 		SELECT timestamp, low, open, close, high, volume 
 		FROM "default".market_data 
@@ -268,18 +284,18 @@ func loadMarketData(ctx context.Context, ch *clickhouse.Client, symbol, timefram
 
 	for rows.Next() {
 		var (
-			ts                                time.Time
-			low, open, closeVal, high, volume float64
+			ts            time.Time
+			l, o, c, h, v float64
 		)
-		if err = rows.Scan(&ts, &low, &open, &closeVal, &high, &volume); err != nil {
+		if err = rows.Scan(&ts, &l, &o, &c, &h, &v); err != nil {
 			return analyzer.Quotes{}, fmt.Errorf("failed to scan row: %w", err)
 		}
 		res.Timestamps = append(res.Timestamps, ts)
-		res.Lows = append(res.Lows, low)
-		res.Opens = append(res.Opens, open)
-		res.Closes = append(res.Closes, closeVal)
-		res.Highs = append(res.Highs, high)
-		res.Volumes = append(res.Volumes, volume)
+		res.Lows = append(res.Lows, l)
+		res.Opens = append(res.Opens, o)
+		res.Closes = append(res.Closes, c)
+		res.Highs = append(res.Highs, h)
+		res.Volumes = append(res.Volumes, v)
 	}
 
 	if err = rows.Err(); err != nil {

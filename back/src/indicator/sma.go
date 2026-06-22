@@ -1,4 +1,4 @@
-package analyzer
+package indicator
 
 func calculateSma(prices []float64, n int) []float64 {
 	result := make([]float64, len(prices))

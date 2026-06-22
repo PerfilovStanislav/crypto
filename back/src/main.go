@@ -50,23 +50,18 @@ func run() error {
 
 	log.Info("application started")
 
-	// Синхронизация котировок SOLUSDT H4
-	log.Info("starting market data sync...")
-	if err = syncMarketData(ctx, ch, log); err != nil {
+	if err = syncMarketData(ctx, ch, log, cfg.Analyzer); err != nil {
 		return fmt.Errorf("market data sync failed: %w", err)
 	}
-	log.Info("market data sync completed successfully")
 
 	// Загрузка данных за последние 2 года в структуру Quotes
-	log.Info("loading market data for the last 2 years from clickhouse...")
-	quotes, err := loadMarketData(ctx, ch, "SOLUSDT", "4h")
+	quotes, err := loadMarketData(ctx, ch, cfg.Analyzer.Pair, cfg.Analyzer.Timeframe)
 	if err != nil {
 		return fmt.Errorf("failed to load market data: %w", err)
 	}
 
 	// Инициализация сервиса Analyzer и проведение анализа котировок
-	log.Info("initializing analyzer service...")
-	az := analyzer.New(quotes)
+	az := analyzer.New(cfg.Analyzer, quotes)
 	az.Run()
 
 	stop()

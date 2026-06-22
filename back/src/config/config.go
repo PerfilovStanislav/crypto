@@ -1,11 +1,16 @@
 package config
 
-import "github.com/ilyakaznacheev/cleanenv"
+import (
+	"indicator"
+	"source"
+
+	"github.com/ilyakaznacheev/cleanenv"
+)
 
 type Config struct {
-	Log  LogConfig  `yaml:"log" env-prefix:"LOG_"`
-	Db   DbConfig   `yaml:"db" env-prefix:"DB_"`
-	Http HttpConfig `yaml:"http" env-prefix:"HTTP_"`
+	Log      LogConfig      `yaml:"log" env-prefix:"LOG_"`
+	Db       DbConfig       `yaml:"db" env-prefix:"DB_"`
+	Analyzer AnalyzerConfig `yaml:"analyzer" env-prefix:"ANALYZER_"`
 }
 
 type LogConfig struct {
@@ -23,8 +28,25 @@ type DbConfig struct {
 	Database string `yaml:"database" env:"DATABASE" env-default:"mobstra"`
 }
 
-type HttpConfig struct {
-	Port int `yaml:"port" env:"PORT" env-default:"8888"`
+type AnalyzerConfig struct {
+	Threads    int                 `yaml:"threads" env:"THREADS"`
+	Pair       string              `yaml:"pair" env:"PAIR"`
+	Timeframe  string              `yaml:"timeframe" env:"TIMEFRAME"`
+	MinCloses  int                 `yaml:"minCloses" env:"MIN_CLOSES"`
+	MinSignals int                 `yaml:"minSignals" env:"MIN_SIGNALS"`
+	Indicators [][]IndicatorConfig `yaml:"indicators" env-prefix:"INDICATORS_"`
+}
+
+type IndicatorConfig struct {
+	Type    indicator.Type `yaml:"type" env:"TYPE"`
+	Coefs   CoefConfig     `yaml:"coefs" env:"COEFS"`
+	Sources []source.Type  `yaml:"sources" env:"SOURCES"`
+}
+
+type CoefConfig struct {
+	Start float64
+	End   float64
+	Step  float64
 }
 
 func Init() *Config {

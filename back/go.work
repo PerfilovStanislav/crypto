@@ -5,6 +5,8 @@ use (
 	src/analyzer
 	src/clickhouse
 	src/config
+	src/indicator
 	src/logger
 	src/shutdown
+	src/source
 )

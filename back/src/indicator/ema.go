@@ -1,4 +1,4 @@
-package analyzer
+package indicator
 
 func calculateEma(prices []float64, multiplier float64) []float64 {
 	result := make([]float64, len(prices))
