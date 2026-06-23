@@ -18,9 +18,12 @@ type Quotes struct {
 	Volumes    []float64
 }
 
-type TpSlParams struct {
-	tp   float64
-	sl   float64
+type TpSlParam struct {
+	tp float64
+	sl float64
+}
+
+type TpSlClose struct {
 	next []int
 	flag []float64
 }
@@ -50,24 +53,42 @@ func New(cfg config.AnalyzerConfig, quotes Quotes) *Analyzer {
 	}
 }
 
-var IndicatorPrices = make(map[IndicatorParams][]float64)
-
-var IndicatorParamGroups = make(map[int][]IndicatorParams)
-
-var IndicatorsCompares = make(map[IndicatorsCompare][]int)
+var (
+	TpSlCloses           = make(map[TpSlParam]TpSlClose)
+	IndicatorPrices      = make(map[IndicatorParams][]float64)
+	IndicatorParamGroups = make(map[int][]IndicatorParams)
+	IndicatorsCompares   = make(map[IndicatorsCompare][]int)
+)
 
 func (a *Analyzer) Length() int {
 	return len(a.quotes.Timestamps)
 }
 
-var m runtime.MemStats
-
 func (a *Analyzer) Run() {
-	start := time.Now()
-
-	runtime.ReadMemStats(&m)
 	runtime.GOMAXPROCS(a.cfg.Threads)
 
+	a.fillIndicatorParamGroups()
+	a.fillTakeprofitStoplossParams()
+	a.fillIndicatorsCompares()
+
+	fmt.Printf("IndicatorsCompares len:%d\n", len(IndicatorsCompares))
+
+	//values := []float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 8, 4, 6, 9}
+
+	//pr(values)
+	//pr(indicator.calculateSma(values, 4))
+	//pr(indicator.calculateEma(values, 1.5))
+	//pr(indicator.calculateDema(values, 1.5))
+	//pr(indicator.calculateTema(values, 1.5))
+	//pr(indicator.calculateTemaZero(values, 1.5))
+
+	//fmt.Println(s.quotes.Closes)
+	//fmt.Println(calculateSma(3, s.quotes.Closes))
+
+	//fmt.Println(tpCnt, slCnt, len(s.quotes.Closes))
+}
+
+func (a *Analyzer) fillIndicatorParamGroups() {
 	for g, indicatorGroup := range a.cfg.Indicators {
 		IndicatorParamGroups[g] = make([]IndicatorParams, 0)
 
@@ -90,23 +111,27 @@ func (a *Analyzer) Run() {
 			}
 		}
 	}
+}
 
-	for tp := 5.0; tp < 30.0; tp += 1.0 {
-		for sl := 5.0; sl < 30.0; sl += 1.0 {
-			if !a.hasEnoughCloses(tp, sl) {
+func (a *Analyzer) fillTakeprofitStoplossParams() {
+	ln := len(a.quotes.Opens)
+
+	for tp := a.cfg.Takeprofit.Start; tp <= a.cfg.Takeprofit.End; tp += a.cfg.Takeprofit.Step {
+		for sl := a.cfg.Stoploss.Start; sl <= a.cfg.Stoploss.End; sl += a.cfg.Stoploss.Step {
+			param := TpSlParam{
+				tp: tp,
+				sl: sl,
+			}
+			if !a.hasEnoughCloses(param) {
 				break
 			}
 
-			// TODO не сохряняем!!
-			a.prepareClosings(TpSlParams{
-				tp:   tp,
-				sl:   sl,
-				next: make([]int, 0, len(a.quotes.Opens)),
-				flag: make([]float64, 0, len(a.quotes.Opens)),
-			})
+			TpSlCloses[param] = a.calculateClosings(param, ln)
 		}
 	}
+}
 
+func (a *Analyzer) fillIndicatorsCompares() {
 	for i := 0; i < len(IndicatorParamGroups)-1; i += 1 {
 		currentParams := IndicatorParamGroups[i]
 
@@ -124,33 +149,6 @@ func (a *Analyzer) Run() {
 			}
 		}
 	}
-	fmt.Printf("IndicatorsCompares len:%d\n", len(IndicatorsCompares))
-
-	fmt.Printf("Execution time: %s\n", time.Since(start))
-	fmt.Printf("Alloc = %d MiB\n", bToMb(m.Alloc))
-	fmt.Printf("TotalAlloc = %d MiB\n", bToMb(m.TotalAlloc))
-	fmt.Printf("Sys = %d MiB\n", bToMb(m.Sys))
-	fmt.Printf("NumGC = %d\n", m.NumGC)
-
-	//fmt.Println(len(IndicatorsCompares))
-
-	//values := []float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 8, 4, 6, 9}
-
-	//pr(values)
-	//pr(indicator.calculateSma(values, 4))
-	//pr(indicator.calculateEma(values, 1.5))
-	//pr(indicator.calculateDema(values, 1.5))
-	//pr(indicator.calculateTema(values, 1.5))
-	//pr(indicator.calculateTemaZero(values, 1.5))
-
-	//fmt.Println(s.quotes.Closes)
-	//fmt.Println(calculateSma(3, s.quotes.Closes))
-
-	//fmt.Println(tpCnt, slCnt, len(s.quotes.Closes))
-}
-
-func bToMb(b uint64) uint64 {
-	return b / 1024 / 1024
 }
 
 func (a *Analyzer) getPricesBySource(t source.Type) []float64 {
@@ -170,47 +168,47 @@ func (a *Analyzer) getPricesBySource(t source.Type) []float64 {
 	return nil
 }
 
-func (a *Analyzer) hasEnoughCloses(tp, sl float64) bool {
+func (a *Analyzer) hasEnoughCloses(param TpSlParam) bool {
 	openedPrice := 0.0
 	closes := 0
 
 	for i, v := range a.quotes.Opens {
-		if openedPrice > 0 {
-			if a.quotes.Highs[i] >= openedPrice+tp {
-				closes++ // for long positions
-				if closes >= a.cfg.MinCloses {
-					return true
-				}
-				openedPrice = 0.0
-			} else if a.quotes.Lows[i] <= openedPrice-sl {
-				openedPrice = 0.0
-			}
-		} else {
+		if openedPrice == 0.0 {
 			openedPrice = v
+		}
+
+		if a.quotes.Highs[i] >= openedPrice+param.tp {
+			closes++ // for long positions
+			if closes >= a.cfg.MinCloses {
+				return true
+			}
+			openedPrice = 0.0
+		} else if a.quotes.Lows[i] <= openedPrice-param.sl {
+			openedPrice = 0.0
 		}
 	}
 
 	return false
 }
 
-func (a *Analyzer) prepareClosings(p TpSlParams) {
-	ln := len(a.quotes.Opens)
+func (a *Analyzer) calculateClosings(p TpSlParam, ln int) TpSlClose {
+	c := TpSlClose{}
 
 	for i, openedPrice := range a.quotes.Opens {
-		for k := i + 1; k < ln; k++ {
+		for k := i; k < ln; k++ {
 			if a.quotes.Highs[k] >= openedPrice+p.tp {
-				p.next = append(p.next, k)
-				p.flag = append(p.flag, 1.0)
+				c.next = append(c.next, k)
+				c.flag = append(c.flag, 1.0)
 				break
 			} else if a.quotes.Lows[k] <= openedPrice-p.sl {
-				p.next = append(p.next, k)
-				p.flag = append(p.flag, -1.0)
+				c.next = append(c.next, k)
+				c.flag = append(c.flag, -1.0)
 				break
 			}
 		}
 	}
 
-	return
+	return c
 }
 
 func (a *Analyzer) compareIndicators(p IndicatorsCompare) []int {

@@ -34,16 +34,18 @@ type AnalyzerConfig struct {
 	Timeframe  string              `yaml:"timeframe" env:"TIMEFRAME"`
 	MinCloses  int                 `yaml:"minCloses" env:"MIN_CLOSES"`
 	MinSignals int                 `yaml:"minSignals" env:"MIN_SIGNALS"`
+	Takeprofit RangeConfig         `yaml:"takeprofit" env:"TAKEPROFIT"`
+	Stoploss   RangeConfig         `yaml:"stoploss" env:"STOPLOSS"`
 	Indicators [][]IndicatorConfig `yaml:"indicators" env-prefix:"INDICATORS_"`
 }
 
 type IndicatorConfig struct {
 	Type    indicator.Type `yaml:"type" env:"TYPE"`
-	Coefs   CoefConfig     `yaml:"coefs" env:"COEFS"`
+	Coefs   RangeConfig    `yaml:"coefs" env:"COEFS"`
 	Sources []source.Type  `yaml:"sources" env:"SOURCES"`
 }
 
-type CoefConfig struct {
+type RangeConfig struct {
 	Start float64
 	End   float64
 	Step  float64

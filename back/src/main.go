@@ -9,11 +9,15 @@ import (
 	"logger"
 	"os"
 	"os/signal"
+	"runtime"
 	"shutdown"
 	"syscall"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 )
+
+var m runtime.MemStats
 
 func main() {
 	if err := run(); err != nil {
@@ -24,6 +28,8 @@ func main() {
 }
 
 func run() error {
+	runtime.ReadMemStats(&m)
+
 	cfg := config.Init()
 	log := logger.New(cfg.Log)
 
@@ -62,7 +68,16 @@ func run() error {
 
 	// Инициализация сервиса Analyzer и проведение анализа котировок
 	az := analyzer.New(cfg.Analyzer, quotes)
+
+	start := time.Now()
+
 	az.Run()
+
+	fmt.Printf("Execution time: %s\n", time.Since(start))
+	fmt.Printf("Alloc = %d MiB\n", bToMb(m.Alloc))
+	fmt.Printf("TotalAlloc = %d MiB\n", bToMb(m.TotalAlloc))
+	fmt.Printf("Sys = %d MiB\n", bToMb(m.Sys))
+	fmt.Printf("NumGC = %d\n", m.NumGC)
 
 	stop()
 
@@ -85,4 +100,8 @@ func waitKillSignal() (context.Context, context.CancelFunc) {
 		syscall.SIGTERM,
 		syscall.SIGINT,
 	)
+}
+
+func bToMb(b uint64) uint64 {
+	return b / 1024 / 1024
 }
