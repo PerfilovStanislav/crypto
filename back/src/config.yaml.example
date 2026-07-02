@@ -12,9 +12,10 @@ db:
   database: "default"
 
 analyzer:
-  threads: 3
+  threads: 11
   pair: "SOLUSDT"
   timeframe: "4h"
+  commission: 0.001
   minCloses: 100
   minSignals: 100
   takeprofit:
@@ -35,10 +36,20 @@ analyzer:
           end: 15.0
           step: 1.0
         sources:
-          - low
-          - open
-          - close
-          - high
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
 
       - type: ema
         coefs:
@@ -46,20 +57,40 @@ analyzer:
           end: 1.5
           step: 0.1
         sources:
-          - low
-          - open
-          - close
-          - high
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
       - type: dema
         coefs:
           start: 0.2
           end: 1.5
           step: 0.1
         sources:
-          - low
-          - open
-          - close
-          - high
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
 
       - type: tema
         coefs:
@@ -67,10 +98,20 @@ analyzer:
           end: 1.5
           step: 0.1
         sources:
-          - low
-          - open
-          - close
-          - high
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
 
       - type: temaZero
         coefs:
@@ -78,10 +119,20 @@ analyzer:
           end: 1.6
           step: 0.1
         sources:
-          - low
-          - open
-          - close
-          - high
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
 
     # 2-ая группа индикаторов
     -
@@ -91,10 +142,20 @@ analyzer:
           end: 15.0
           step: 1.0
         sources:
-          - low
-          - open
-          - close
-          - high
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
 
       - type: ema
         coefs:
@@ -102,20 +163,40 @@ analyzer:
           end: 1.5
           step: 0.1
         sources:
-          - low
-          - open
-          - close
-          - high
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
       - type: dema
         coefs:
           start: 0.2
           end: 1.5
           step: 0.1
         sources:
-          - low
-          - open
-          - close
-          - high
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
 
       - type: tema
         coefs:
@@ -123,10 +204,20 @@ analyzer:
           end: 1.5
           step: 0.1
         sources:
-          - low
-          - open
-          - close
-          - high
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
 
       - type: temaZero
         coefs:
@@ -134,7 +225,17 @@ analyzer:
           end: 1.6
           step: 0.1
         sources:
-          - low
-          - open
-          - close
-          - high
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH

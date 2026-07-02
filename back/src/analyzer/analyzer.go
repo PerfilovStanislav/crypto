@@ -139,20 +139,6 @@ func (a *Analyzer) Run() {
 
 	close(a.Results)
 	<-resultDoneSignal
-
-	//values := []float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 8, 4, 6, 9}
-
-	//pr(values)
-	//pr(indicator.calculateSma(values, 4))
-	//pr(indicator.calculateEma(values, 1.5))
-	//pr(indicator.calculateDema(values, 1.5))
-	//pr(indicator.calculateTema(values, 1.5))
-	//pr(indicator.calculateTemaZero(values, 1.5))
-
-	//fmt.Println(s.quotes.Closes)
-	//fmt.Println(calculateSma(3, s.quotes.Closes))
-
-	//fmt.Println(tpCnt, slCnt, len(s.quotes.Closes))
 }
 
 func (a *Analyzer) testTaskDirect(ic IndicatorsCompare, signals []int, tpSlParam TpSlParam, coefs []float64, indexes []int) {

@@ -74,10 +74,10 @@ func run() error {
 	az.Run()
 
 	fmt.Printf("Execution time: %s\n", time.Since(start))
-	fmt.Printf("Alloc = %d MiB\n", bToMb(m.Alloc))
-	fmt.Printf("TotalAlloc = %d MiB\n", bToMb(m.TotalAlloc))
-	fmt.Printf("Sys = %d MiB\n", bToMb(m.Sys))
-	fmt.Printf("NumGC = %d\n", m.NumGC)
+	//fmt.Printf("Alloc = %d MiB\n", bToMb(m.Alloc))
+	//fmt.Printf("TotalAlloc = %d MiB\n", bToMb(m.TotalAlloc))
+	//fmt.Printf("Sys = %d MiB\n", bToMb(m.Sys))
+	//fmt.Printf("NumGC = %d\n", m.NumGC)
 
 	stop()
 
@@ -102,6 +102,6 @@ func waitKillSignal() (context.Context, context.CancelFunc) {
 	)
 }
 
-func bToMb(b uint64) uint64 {
-	return b / 1024 / 1024
-}
+//func bToMb(b uint64) uint64 {
+//	return b / 1024 / 1024
+//}

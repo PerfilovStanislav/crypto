@@ -23,16 +23,16 @@ func (c IndicatorsCompare) String() string {
 }
 
 func (p IndicatorParams) String() string {
-	return spf("%8s %3s %5.2f",
-		p.Type,
+	return spf("%s %3s %s",
+		clr(spf("%8s", p.Type), color.FgHiYellow),
 		p.Source,
-		p.Coef,
+		clr(spf("%5.2f", p.Coef), color.FgHiCyan),
 	)
 }
 
 func (p TpSlParam) String() string {
 	return spf("%s %s",
-		clr(spf("tp:%2.0f", p.tp), color.FgHiCyan),
+		clr(spf("tp:%2.0f", p.tp), color.FgHiGreen),
 		clr(spf("sl:%2.0f", p.sl), color.FgHiRed),
 	)
 }
