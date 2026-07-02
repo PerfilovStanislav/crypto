@@ -24,15 +24,17 @@ type TpSlParam struct {
 }
 
 type TpSlClose struct {
-	next []int
-	flag []float64
+	indexes []int
+	coefs   []float64
 }
 
 type Coef float64
 
 type Analyzer struct {
-	cfg    config.AnalyzerConfig
-	quotes Quotes
+	cfg     config.AnalyzerConfig
+	quotes  Quotes
+	ln      int
+	Results chan TaskResult
 }
 
 type IndicatorParams struct {
@@ -42,15 +44,18 @@ type IndicatorParams struct {
 }
 
 type IndicatorsCompare struct {
-	CurrentParams IndicatorParams
-	NextParams    IndicatorParams
+	Indicator1Params IndicatorParams
+	Indicator2Params IndicatorParams
 }
 
-func New(cfg config.AnalyzerConfig, quotes Quotes) *Analyzer {
-	return &Analyzer{
-		cfg:    cfg,
-		quotes: quotes,
-	}
+type Task struct {
+	IndicatorsCompare IndicatorsCompare
+	TpSlParam         TpSlParam
+}
+
+type TaskResult struct {
+	Task Task
+	Coef float64
 }
 
 var (
@@ -60,8 +65,13 @@ var (
 	IndicatorsCompares   = make(map[IndicatorsCompare][]int)
 )
 
-func (a *Analyzer) Length() int {
-	return len(a.quotes.Timestamps)
+func New(cfg config.AnalyzerConfig, quotes Quotes) *Analyzer {
+	return &Analyzer{
+		cfg:     cfg,
+		quotes:  quotes,
+		ln:      len(quotes.Opens),
+		Results: make(chan TaskResult, cfg.Threads),
+	}
 }
 
 func (a *Analyzer) Run() {
@@ -71,7 +81,43 @@ func (a *Analyzer) Run() {
 	a.fillTakeprofitStoplossParams()
 	a.fillIndicatorsCompares()
 
+	resultDoneSignal := a.resultsHandler()
+
 	fmt.Printf("IndicatorsCompares len:%d\n", len(IndicatorsCompares))
+
+	taskChannel := make(chan Task)
+	ready := make(chan struct{}, a.cfg.Threads)
+
+	for i := 0; i < a.cfg.Threads; i++ {
+		go func(taskChannel <-chan Task, ready chan<- struct{}) {
+			defer func() {
+				if r := recover(); r != nil {
+					_ = fmt.Errorf("worker panic: %v", r)
+				}
+				ready <- struct{}{}
+			}()
+
+			for task := range taskChannel {
+				a.testTask(task)
+			}
+			ready <- struct{}{}
+		}(taskChannel, ready)
+	}
+
+	for indicatorsCompare, _ := range IndicatorsCompares {
+		for tpSlParam, _ := range TpSlCloses {
+			taskChannel <- Task{indicatorsCompare, tpSlParam}
+		}
+	}
+	close(taskChannel)
+
+	for i := 0; i < a.cfg.Threads; i++ {
+		<-ready
+	}
+	close(ready)
+
+	close(a.Results)
+	<-resultDoneSignal
 
 	//values := []float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 8, 4, 6, 9}
 
@@ -86,6 +132,48 @@ func (a *Analyzer) Run() {
 	//fmt.Println(calculateSma(3, s.quotes.Closes))
 
 	//fmt.Println(tpCnt, slCnt, len(s.quotes.Closes))
+}
+
+func (a *Analyzer) testTask(t Task) {
+	// здесь берём один уровень. Если надо будет сравнивать 3 индикатора, то придётся позаморачиваться
+
+	var (
+		result       = 1.0
+		signals      = IndicatorsCompares[t.IndicatorsCompare]
+		coefs        = TpSlCloses[t.TpSlParam].coefs
+		indexes      = TpSlCloses[t.TpSlParam].indexes
+		closingIndex = -1
+	)
+
+	for i := 0; i < len(signals); i++ {
+		openingSignalIndex := signals[i]
+		if openingSignalIndex < closingIndex {
+			continue
+		}
+		result *= coefs[openingSignalIndex+1] // открытие происходит на следующей свече
+		closingIndex = indexes[openingSignalIndex+1]
+	}
+
+	if result > 2.0 {
+		a.Results <- TaskResult{
+			Task: t,
+			Coef: result,
+		}
+	}
+}
+
+func (a *Analyzer) resultsHandler() <-chan struct{} {
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		for r := range a.Results {
+			fmt.Println(r.Coef)
+		}
+	}()
+
+	return done
 }
 
 func (a *Analyzer) fillIndicatorParamGroups() {
@@ -114,8 +202,6 @@ func (a *Analyzer) fillIndicatorParamGroups() {
 }
 
 func (a *Analyzer) fillTakeprofitStoplossParams() {
-	ln := len(a.quotes.Opens)
-
 	for tp := a.cfg.Takeprofit.Start; tp <= a.cfg.Takeprofit.End; tp += a.cfg.Takeprofit.Step {
 		for sl := a.cfg.Stoploss.Start; sl <= a.cfg.Stoploss.End; sl += a.cfg.Stoploss.Step {
 			param := TpSlParam{
@@ -126,7 +212,7 @@ func (a *Analyzer) fillTakeprofitStoplossParams() {
 				break
 			}
 
-			TpSlCloses[param] = a.calculateClosings(param, ln)
+			TpSlCloses[param] = a.calculateClosings(param)
 		}
 	}
 }
@@ -138,8 +224,8 @@ func (a *Analyzer) fillIndicatorsCompares() {
 		for _, currentParam := range currentParams {
 			for _, nextParam := range IndicatorParamGroups[i+1] {
 				compareParams := IndicatorsCompare{
-					CurrentParams: currentParam,
-					NextParams:    nextParam,
+					Indicator1Params: currentParam,
+					Indicator2Params: nextParam,
 				}
 				indexes := a.compareIndicators(compareParams)
 
@@ -191,20 +277,31 @@ func (a *Analyzer) hasEnoughCloses(param TpSlParam) bool {
 	return false
 }
 
-func (a *Analyzer) calculateClosings(p TpSlParam, ln int) TpSlClose {
-	c := TpSlClose{}
+func (a *Analyzer) calculateClosings(p TpSlParam) TpSlClose {
+	c := TpSlClose{
+		indexes: make([]int, a.ln),
+		coefs:   make([]float64, a.ln),
+	}
+	commsision := (1 - a.cfg.Commission) * (1 - a.cfg.Commission)
 
+level2:
 	for i, openedPrice := range a.quotes.Opens {
-		for k := i; k < ln; k++ {
+		for k := i; k < a.ln; k++ {
 			if a.quotes.Highs[k] >= openedPrice+p.tp {
-				c.next = append(c.next, k)
-				c.flag = append(c.flag, 1.0)
-				break
+				coef := commsision * (openedPrice + p.tp) / openedPrice
+				c.indexes[i] = k
+				c.coefs[i] = coef
+				continue level2
 			} else if a.quotes.Lows[k] <= openedPrice-p.sl {
-				c.next = append(c.next, k)
-				c.flag = append(c.flag, -1.0)
-				break
+				coef := commsision * (openedPrice - p.sl) / openedPrice
+				c.indexes[i] = k
+				c.coefs[i] = coef
+				continue level2
 			}
+		}
+		for k := i; k < a.ln; k++ {
+			c.indexes[k] = a.ln
+			c.coefs[k] = 1.0
 		}
 	}
 
@@ -213,13 +310,12 @@ func (a *Analyzer) calculateClosings(p TpSlParam, ln int) TpSlClose {
 
 func (a *Analyzer) compareIndicators(p IndicatorsCompare) []int {
 	var (
-		currentPrices = IndicatorPrices[p.CurrentParams]
-		nextPrices    = IndicatorPrices[p.NextParams]
-		ln            = len(currentPrices)
+		currentPrices = IndicatorPrices[p.Indicator1Params]
+		nextPrices    = IndicatorPrices[p.Indicator2Params]
 		indexes       = make([]int, 0)
 	)
 
-	for i := 0; i < ln; i++ {
+	for i := 0; i < a.ln-1; i++ { // don't check last candle
 		if nextPrices[i] > currentPrices[i] {
 			indexes = append(indexes, i)
 		}

@@ -32,6 +32,7 @@ type AnalyzerConfig struct {
 	Threads    int                 `yaml:"threads" env:"THREADS"`
 	Pair       string              `yaml:"pair" env:"PAIR"`
 	Timeframe  string              `yaml:"timeframe" env:"TIMEFRAME"`
+	Commission float64             `yaml:"commission" env:"COMMISSION"`
 	MinCloses  int                 `yaml:"minCloses" env:"MIN_CLOSES"`
 	MinSignals int                 `yaml:"minSignals" env:"MIN_SIGNALS"`
 	Takeprofit RangeConfig         `yaml:"takeprofit" env:"TAKEPROFIT"`
