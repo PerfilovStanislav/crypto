@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"source"
 	"time"
+
+	"github.com/fatih/color"
 )
 
 type Quotes struct {
@@ -81,7 +83,7 @@ func (a *Analyzer) Run() {
 	a.fillTakeprofitStoplossParams()
 	a.fillIndicatorsCompares()
 
-	resultDoneSignal := a.resultsHandler()
+	resultDoneSignal := a.resultChannelHandler()
 
 	fmt.Printf("IndicatorsCompares len:%d\n", len(IndicatorsCompares))
 
@@ -90,13 +92,6 @@ func (a *Analyzer) Run() {
 
 	for i := 0; i < a.cfg.Threads; i++ {
 		go func(taskChannel <-chan Task, ready chan<- struct{}) {
-			defer func() {
-				if r := recover(); r != nil {
-					_ = fmt.Errorf("worker panic: %v", r)
-				}
-				ready <- struct{}{}
-			}()
-
 			for task := range taskChannel {
 				a.testTask(task)
 			}
@@ -154,7 +149,7 @@ func (a *Analyzer) testTask(t Task) {
 		closingIndex = indexes[openingSignalIndex+1]
 	}
 
-	if result > 2.0 {
+	if result > 1.0 {
 		a.Results <- TaskResult{
 			Task: t,
 			Coef: result,
@@ -162,14 +157,19 @@ func (a *Analyzer) testTask(t Task) {
 	}
 }
 
-func (a *Analyzer) resultsHandler() <-chan struct{} {
+func (a *Analyzer) resultChannelHandler() <-chan struct{} {
+	maxCoef := 0.0
+
 	done := make(chan struct{})
 
 	go func() {
 		defer close(done)
 
 		for r := range a.Results {
-			fmt.Println(r.Coef)
+			if r.Coef > maxCoef {
+				maxCoef = r.Coef
+				fmt.Println(r)
+			}
 		}
 	}()
 
@@ -249,9 +249,47 @@ func (a *Analyzer) getPricesBySource(t source.Type) []float64 {
 		return a.quotes.Highs
 	case source.V:
 		return a.quotes.Volumes
+	case source.LO:
+		return AverageSlices(a.quotes.Lows, a.quotes.Opens)
+	case source.LC:
+		return AverageSlices(a.quotes.Lows, a.quotes.Closes)
+	case source.LH:
+		return AverageSlices(a.quotes.Lows, a.quotes.Highs)
+	case source.OC:
+		return AverageSlices(a.quotes.Opens, a.quotes.Closes)
+	case source.OH:
+		return AverageSlices(a.quotes.Opens, a.quotes.Highs)
+	case source.CH:
+		return AverageSlices(a.quotes.Closes, a.quotes.Highs)
+	case source.LOC:
+		return AverageSlices(a.quotes.Lows, a.quotes.Opens, a.quotes.Closes)
+	case source.LOH:
+		return AverageSlices(a.quotes.Lows, a.quotes.Opens, a.quotes.Highs)
+	case source.LCH:
+		return AverageSlices(a.quotes.Lows, a.quotes.Closes, a.quotes.Highs)
+	case source.OCH:
+		return AverageSlices(a.quotes.Opens, a.quotes.Closes, a.quotes.Highs)
 	}
 
 	return nil
+}
+
+func AverageSlices(slices ...[]float64) []float64 {
+	length := len(slices[0])
+	result := make([]float64, length)
+
+	for _, slice := range slices {
+		for i, v := range slice {
+			result[i] += v
+		}
+	}
+
+	divisor := float64(len(slices))
+	for i := range result {
+		result[i] /= divisor
+	}
+
+	return result
 }
 
 func (a *Analyzer) hasEnoughCloses(param TpSlParam) bool {
@@ -322,6 +360,16 @@ func (a *Analyzer) compareIndicators(p IndicatorsCompare) []int {
 	}
 
 	return indexes
+}
+
+func clr(text string, attrs ...color.Attribute) string {
+	c := color.New(attrs...)
+	c.EnableColor()
+	return c.Sprintf("%s", text)
+}
+
+func spf(f string, a ...any) string {
+	return fmt.Sprintf(f, a...)
 }
 
 func pr(data []float64) {
