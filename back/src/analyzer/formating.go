@@ -1,6 +1,8 @@
 package analyzer
 
 import (
+	"fmt"
+
 	"github.com/fatih/color"
 )
 
@@ -35,4 +37,14 @@ func (p TpSlParam) String() string {
 		clr(spf("tp:%2.0f", p.tp), color.FgHiGreen),
 		clr(spf("sl:%2.0f", p.sl), color.FgHiRed),
 	)
+}
+
+func clr(text string, attrs ...color.Attribute) string {
+	c := color.New(attrs...)
+	c.EnableColor()
+	return c.Sprintf("%s", text)
+}
+
+func spf(f string, a ...any) string {
+	return fmt.Sprintf(f, a...)
 }

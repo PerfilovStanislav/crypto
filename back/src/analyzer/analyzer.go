@@ -10,8 +10,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/fatih/color"
 )
 
 type Quotes struct {
@@ -411,21 +409,4 @@ func (a *Analyzer) compareIndicators(p IndicatorsCompare) []int {
 	}
 
 	return indexes
-}
-
-func clr(text string, attrs ...color.Attribute) string {
-	c := color.New(attrs...)
-	c.EnableColor()
-	return c.Sprintf("%s", text)
-}
-
-func spf(f string, a ...any) string {
-	return fmt.Sprintf(f, a...)
-}
-
-func pr(data []float64) {
-	for _, v := range data {
-		fmt.Printf("%6.2f ", v)
-	}
-	fmt.Printf("\n")
 }
