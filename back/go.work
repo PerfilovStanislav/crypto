@@ -8,5 +8,6 @@ use (
 	src/indicator
 	src/logger
 	src/shutdown
+	src/server
 	src/source
 )

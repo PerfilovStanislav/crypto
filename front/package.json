@@ -1,0 +1,23 @@
+{
+  "name": "ai-creator-front",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "protoc-gen-js": "3.21.4-4",
+    "protoc-gen-ts": "^0.8.7",
+    "ts-proto": "^2.11.6",
+    "ts-protoc-gen": "^0.15.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.0.4"
+  },
+  "packageManager": "pnpm@10.33.2+sha512.a90faf6feeab71ad6c6e57f94e0fe1a12f5dcc22cd754db40ae9593eb6a3e0b6b12e3540218bb37ae083404b1f2ce6db2a4121e979829b4aff94b99f49da1cf8",
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.11.0"
+  }
+}

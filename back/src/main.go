@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"server"
 	"shutdown"
 	"syscall"
 	"time"
@@ -53,6 +54,9 @@ func run() error {
 		return fmt.Errorf("clickhouse initialization error: %w", err)
 	}
 	graceful.Add(ch)
+
+	srv := server.New(log, cfg.Http, ch)
+	graceful.Add(srv)
 
 	log.Info("application started")
 

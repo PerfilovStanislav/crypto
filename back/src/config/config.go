@@ -10,6 +10,7 @@ import (
 type Config struct {
 	Log      LogConfig      `yaml:"log" env-prefix:"LOG_"`
 	Db       DbConfig       `yaml:"db" env-prefix:"DB_"`
+	Http     HttpConfig     `yaml:"http" env-prefix:"HTTP_"`
 	Analyzer AnalyzerConfig `yaml:"analyzer" env-prefix:"ANALYZER_"`
 }
 
@@ -26,6 +27,10 @@ type DbConfig struct {
 	User     string `yaml:"user" env:"USER" env-default:"appuser"`
 	Password string `yaml:"password" env:"PASSWORD" env-default:"qwerty12"`
 	Database string `yaml:"database" env:"DATABASE" env-default:"mobstra"`
+}
+
+type HttpConfig struct {
+	Port int `yaml:"port" env:"PORT" env-default:"8888"`
 }
 
 type AnalyzerConfig struct {
