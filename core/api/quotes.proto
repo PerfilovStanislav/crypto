@@ -1,0 +1,79 @@
+syntax = "proto3";
+package api;
+
+option go_package = "server/api";
+
+import "google/protobuf/timestamp.proto";
+
+message QuotesRequest {
+  string symbol = 1;
+  TimeframeEnum tf = 2;
+  double takeprofit = 3;
+  double stoploss = 4;
+  Indicator ind1 = 5;
+  Indicator ind2 = 6;
+}
+
+enum TimeframeEnum {
+  TIMEFRAME_UNSPECIFIED = 0;
+  TIMEFRAME_1M = 1;
+  TIMEFRAME_5M = 2;
+  TIMEFRAME_15M = 3;
+  TIMEFRAME_30M = 4;
+  TIMEFRAME_1H = 5;
+  TIMEFRAME_4H = 6;
+  TIMEFRAME_1D = 7;
+  TIMEFRAME_1W = 8;
+}
+
+message Indicator {
+  IndicatorTypeEnum type = 1;
+  double coef = 2;
+  SourceTypeEnum source = 3;
+}
+
+enum IndicatorTypeEnum {
+  INDICATOR_TYPE_UNSPECIFIED = 0;
+  INDICATOR_TYPE_SMA = 1;
+  INDICATOR_TYPE_EMA = 2;
+  INDICATOR_TYPE_DEMA = 3;
+  INDICATOR_TYPE_TEMA = 4;
+  INDICATOR_TYPE_TEMA_ZERO = 5;
+}
+
+enum SourceTypeEnum {
+  SOURCE_TYPE_UNSPECIFIED = 0;
+  SOURCE_TYPE_L = 1;
+  SOURCE_TYPE_O = 2;
+  SOURCE_TYPE_C = 3;
+  SOURCE_TYPE_H = 4;
+  SOURCE_TYPE_LO = 5;
+  SOURCE_TYPE_LC = 6;
+  SOURCE_TYPE_LH = 7;
+  SOURCE_TYPE_OC = 8;
+  SOURCE_TYPE_OH = 9;
+  SOURCE_TYPE_CH = 10;
+  SOURCE_TYPE_LOC = 11;
+  SOURCE_TYPE_LOH = 12;
+  SOURCE_TYPE_LCH = 13;
+  SOURCE_TYPE_OCH = 14;
+}
+
+message QuotesResponse {
+  Candles candles = 1;
+  repeated Candles indicators = 2;
+  repeated google.protobuf.Timestamp time = 3;
+  repeated Deal deals = 4;
+}
+
+message Candles {
+  repeated double l = 1;
+  repeated double o = 2;
+  repeated double c = 3;
+  repeated double h = 4;
+}
+
+message Deal {
+  int32 open = 1;  // индекс открытия сделки
+  int32 close = 2; // индекс закрытия сделки
+}
