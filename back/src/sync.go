@@ -100,17 +100,22 @@ func syncMarketData(ctx context.Context, ch *clickhouse.Client, log *logger.Logg
 
 	log.Info("fetched all candles from bybit", "raw_count", len(allCandles))
 
+	tfDur := timeframeDuration(cfg.Timeframe)
+
 	// Parse and filter out candles already in ClickHouse
 	var candlesToInsert []Candle
 	for _, raw := range allCandles {
-		candle, err := parseCandle(raw)
+		candle, err := parseCandle(raw, cfg.Pair, cfg.Timeframe)
 		if err != nil {
 			log.Warn("skipping invalid candle", "error", err)
 			continue
 		}
 
-		// Only insert candles strictly newer than maxTime and older than current time
-		if candle.Timestamp.After(maxTime) && candle.Timestamp.Before(time.Now()) {
+		// Only insert candles strictly newer than maxTime and whose period has fully completed.
+		// A candle starts at candle.Timestamp and ends at candle.Timestamp + tfDur.
+		// It is complete only if its end time is at or before the current time.
+		endTime := candle.Timestamp.Add(tfDur)
+		if candle.Timestamp.After(maxTime) && !endTime.After(time.Now()) {
 			candlesToInsert = append(candlesToInsert, candle)
 		}
 	}
@@ -129,6 +134,29 @@ func syncMarketData(ctx context.Context, ch *clickhouse.Client, log *logger.Logg
 
 	log.Info("successfully saved candles to clickhouse", "inserted_count", len(candlesToInsert))
 	return nil
+}
+
+func timeframeDuration(tf string) time.Duration {
+	switch tf {
+	case "1m":
+		return time.Minute
+	case "5m":
+		return 5 * time.Minute
+	case "15m":
+		return 15 * time.Minute
+	case "30m":
+		return 30 * time.Minute
+	case "1h":
+		return time.Hour
+	case "4h":
+		return 4 * time.Hour
+	case "1d":
+		return 24 * time.Hour
+	case "1w":
+		return 7 * 24 * time.Hour
+	default:
+		return 4 * time.Hour
+	}
 }
 
 // fetchBybitKlines gets candles from Bybit v5 public API.
@@ -185,7 +213,7 @@ func IntervalToMinutes(interval string) string {
 }
 
 // parseCandle converts Bybit API candle array to a Candle struct.
-func parseCandle(raw []string) (Candle, error) {
+func parseCandle(raw []string, symbol, timeframe string) (Candle, error) {
 	if len(raw) < 6 {
 		return Candle{}, fmt.Errorf("insufficient fields, got %d expected at least 6", len(raw))
 	}
@@ -222,8 +250,8 @@ func parseCandle(raw []string) (Candle, error) {
 	}
 
 	return Candle{
-		Symbol:    "SOLUSDT",
-		Timeframe: "4h",
+		Symbol:    symbol,
+		Timeframe: timeframe,
 		Timestamp: ts,
 		Open:      open,
 		High:      high,
