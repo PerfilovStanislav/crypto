@@ -55,9 +55,6 @@ func run() error {
 	}
 	graceful.Add(ch)
 
-	srv := server.New(log, cfg.Http, ch)
-	graceful.Add(srv)
-
 	log.Info("application started")
 
 	if err = syncMarketData(ctx, ch, log, cfg.Analyzer); err != nil {
@@ -69,6 +66,10 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("failed to load market data: %w", err)
 	}
+
+	srv := server.New(log, cfg.Http, quotes)
+	graceful.Add(srv)
+	srv.Run(gCtx, g)
 
 	// Инициализация сервиса Analyzer и проведение анализа котировок
 	az := analyzer.New(cfg.Analyzer, quotes)
@@ -83,11 +84,7 @@ func run() error {
 	//fmt.Printf("Sys = %d MiB\n", bToMb(m.Sys))
 	//fmt.Printf("NumGC = %d\n", m.NumGC)
 
-	stop()
-
-	<-gCtx.Done()
-	stop()
-	log.Info("shutdown signal received, waiting for background tasks to finish...")
+	log.Info("waiting for background tasks or shutdown signal...")
 
 	// Ждём завершения всех горутин
 	if err = g.Wait(); err != nil {

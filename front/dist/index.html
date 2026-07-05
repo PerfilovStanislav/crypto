@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="A responsive, high-performance financial candlestick chart interface with real-time indicators and trade visualization.">
+  <title>Antigravity Trading Terminal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script type="module" crossorigin src="/assets/index-DlwdCXIW.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-CHFqRBsI.css">
+</head>
+<body>
+  <div class="app-container">
+    <header class="app-header">
+      <div class="header-logo">
+        <svg class="logo-icon" viewBox="0 0 24 24" width="24" height="24">
+          <path d="M12 2L2 22h20L12 2zm0 3.8L18.4 18H5.6L12 5.8z" fill="currentColor"/>
+          <path d="M12 8l-4 8h8l-4-8z" fill="currentColor"/>
+        </svg>
+        <h1>Antigravity Terminal</h1>
+      </div>
+      <div class="header-status">
+        <span class="status-indicator online" id="status-indicator"></span>
+        <span class="status-text" id="status-text">Connected</span>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <aside class="sidebar" aria-label="Controls Panel">
+        <div class="card panel-card">
+          <div class="card-header">
+            <h2>Parameters</h2>
+          </div>
+          <form class="control-form" id="quotes-form" onsubmit="return false;">
+            <!-- Basic Parameters -->
+            <div class="form-group">
+              <label for="input-symbol">Symbol</label>
+              <input type="text" id="input-symbol" name="symbol" value="SOLUSDT" placeholder="e.g. SOLUSDT" required autocomplete="off">
+            </div>
+
+            <div class="form-group">
+              <label for="select-timeframe">Timeframe</label>
+              <select id="select-timeframe" name="tf" required>
+                <option value="1">1m</option>
+                <option value="2">5m</option>
+                <option value="3">15m</option>
+                <option value="4">30m</option>
+                <option value="5">1h</option>
+                <option value="6" selected>4h</option>
+                <option value="7">1D</option>
+                <option value="8">1W</option>
+              </select>
+            </div>
+
+            <div class="form-row-2">
+              <div class="form-group">
+                <label for="input-takeprofit">Take Profit (%)</label>
+                <input type="number" id="input-takeprofit" name="takeprofit" value="11.0" min="0.1" max="100" step="0.1" required>
+              </div>
+
+              <div class="form-group">
+                <label for="input-stoploss">Stop Loss (%)</label>
+                <input type="number" id="input-stoploss" name="stoploss" value="10.0" min="0.1" max="100" step="0.1" required>
+              </div>
+            </div>
+
+            <hr class="separator">
+
+            <!-- Indicator 1 -->
+            <div class="indicator-section">
+              <div class="section-title">
+                <span class="indicator-color-dot ind1-color"></span>
+                <h3>Indicator 1</h3>
+              </div>
+              
+              <div class="form-group">
+                <label for="select-ind1-type">Type</label>
+                <select id="select-ind1-type" name="ind1-type" required>
+                  <option value="1">SMA</option>
+                  <option value="2">EMA</option>
+                  <option value="3">DEMA</option>
+                  <option value="4" selected>TEMA</option>
+                  <option value="5">TEMA Zero</option>
+                </select>
+              </div>
+
+              <div class="form-row-2">
+                <div class="form-group">
+                  <label for="input-ind1-coef">Coef (Period)</label>
+                  <input type="number" id="input-ind1-coef" name="ind1-coef" value="1.3" min="0.1" max="500" step="0.1" required>
+                </div>
+                <div class="form-group">
+                  <label for="select-ind1-source">Source</label>
+                  <select id="select-ind1-source" name="ind1-source" required>
+                    <option value="1">Low (L)</option>
+                    <option value="2">Open (O)</option>
+                    <option value="3">Close (C)</option>
+                    <option value="4" selected>High (H)</option>
+                    <option value="5">Low-Open (LO)</option>
+                    <option value="6">Low-Close (LC)</option>
+                    <option value="7">Low-High (LH)</option>
+                    <option value="8">Open-Close (OC)</option>
+                    <option value="9">Open-High (OH)</option>
+                    <option value="10">Close-High (CH)</option>
+                    <option value="11">Low-Open-Close (LOC)</option>
+                    <option value="12">Low-Open-High (LOH)</option>
+                    <option value="13">Low-Close-High (LCH)</option>
+                    <option value="14">Open-Close-High (OCH)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <hr class="separator">
+
+            <!-- Indicator 2 -->
+            <div class="indicator-section">
+              <div class="section-title">
+                <span class="indicator-color-dot ind2-color"></span>
+                <h3>Indicator 2</h3>
+              </div>
+
+              <div class="form-group">
+                <label for="select-ind2-type">Type</label>
+                <select id="select-ind2-type" name="ind2-type" required>
+                  <option value="1">SMA</option>
+                  <option value="2">EMA</option>
+                  <option value="3">DEMA</option>
+                  <option value="4" selected>TEMA</option>
+                  <option value="5">TEMA Zero</option>
+                </select>
+              </div>
+
+              <div class="form-row-2">
+                <div class="form-group">
+                  <label for="input-ind2-coef">Coef (Period)</label>
+                  <input type="number" id="input-ind2-coef" name="input-ind2-coef" value="0.3" min="0.1" max="500" step="0.1" required>
+                </div>
+                <div class="form-group">
+                  <label for="select-ind2-source">Source</label>
+                  <select id="select-ind2-source" name="ind2-source" required>
+                    <option value="1">Low (L)</option>
+                    <option value="2">Open (O)</option>
+                    <option value="3">Close (C)</option>
+                    <option value="4">High (H)</option>
+                    <option value="5">Low-Open (LO)</option>
+                    <option value="6">Low-Close (LC)</option>
+                    <option value="7" selected>Low-High (LH)</option>
+                    <option value="8">Open-Close (OC)</option>
+                    <option value="9">Open-High (OH)</option>
+                    <option value="10">Close-High (CH)</option>
+                    <option value="11">Low-Open-Close (LOC)</option>
+                    <option value="12">Low-Open-High (LOH)</option>
+                    <option value="13">Low-Close-High (LCH)</option>
+                    <option value="14">Open-Close-High (OCH)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </form>
+        </div>
+      </aside>
+
+      <section class="chart-area" aria-label="Interactive Chart Board">
+        <div class="card chart-card">
+          <!-- Real-time HUD overlay details -->
+          <div class="hud" id="hud-overlay">
+            <div class="hud-item symbol-badge" id="hud-symbol">SOLUSDT</div>
+            <div class="hud-item"><span class="hud-label">O</span> <span id="hud-open">--</span></div>
+            <div class="hud-item"><span class="hud-label">H</span> <span id="hud-high">--</span></div>
+            <div class="hud-item"><span class="hud-label">L</span> <span id="hud-low">--</span></div>
+            <div class="hud-item"><span class="hud-label">C</span> <span id="hud-close">--</span></div>
+            <div class="hud-item"><span class="hud-label ind1-text">IND1</span> <span id="hud-ind1">--</span></div>
+            <div class="hud-item"><span class="hud-label ind2-text">IND2</span> <span id="hud-ind2">--</span></div>
+          </div>
+          
+          <div class="canvas-wrapper">
+            <div id="chart-container" style="width: 100%; height: 100%;"></div>
+            <div class="error-overlay" id="error-overlay">
+              <div class="error-msg" id="error-msg">Connecting to server...</div>
+            </div>
+            <div class="loading-spinner" id="loading-spinner"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+</body>
+</html>

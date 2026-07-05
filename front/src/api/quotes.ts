@@ -116,17 +116,22 @@ export interface Indicator {
 }
 
 export interface QuotesResponse {
-  candles?: Candles | undefined;
-  indicators: Candles[];
   time: Date[];
+  candles?: Candles | undefined;
+  indicator1?: Prices | undefined;
+  indicator2?: Prices | undefined;
   deals: Deal[];
 }
 
+export interface Prices {
+  price: number[];
+}
+
 export interface Candles {
-  l: number[];
-  o: number[];
-  c: number[];
-  h: number[];
+  l?: Prices | undefined;
+  o?: Prices | undefined;
+  c?: Prices | undefined;
+  h?: Prices | undefined;
 }
 
 export interface Deal {
@@ -313,22 +318,25 @@ export const Indicator: MessageFns<Indicator> = {
 };
 
 function createBaseQuotesResponse(): QuotesResponse {
-  return { candles: undefined, indicators: [], time: [], deals: [] };
+  return { time: [], candles: undefined, indicator1: undefined, indicator2: undefined, deals: [] };
 }
 
 export const QuotesResponse: MessageFns<QuotesResponse> = {
   encode(message: QuotesResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.candles !== undefined) {
-      Candles.encode(message.candles, writer.uint32(10).fork()).join();
-    }
-    for (const v of message.indicators) {
-      Candles.encode(v!, writer.uint32(18).fork()).join();
-    }
     for (const v of message.time) {
-      Timestamp.encode(toTimestamp(v!), writer.uint32(26).fork()).join();
+      Timestamp.encode(toTimestamp(v!), writer.uint32(10).fork()).join();
+    }
+    if (message.candles !== undefined) {
+      Candles.encode(message.candles, writer.uint32(18).fork()).join();
+    }
+    if (message.indicator1 !== undefined) {
+      Prices.encode(message.indicator1, writer.uint32(26).fork()).join();
+    }
+    if (message.indicator2 !== undefined) {
+      Prices.encode(message.indicator2, writer.uint32(34).fork()).join();
     }
     for (const v of message.deals) {
-      Deal.encode(v!, writer.uint32(34).fork()).join();
+      Deal.encode(v!, writer.uint32(42).fork()).join();
     }
     return writer;
   },
@@ -345,7 +353,7 @@ export const QuotesResponse: MessageFns<QuotesResponse> = {
             break;
           }
 
-          message.candles = Candles.decode(reader, reader.uint32());
+          message.time.push(fromTimestamp(Timestamp.decode(reader, reader.uint32())));
           continue;
         }
         case 2: {
@@ -353,7 +361,7 @@ export const QuotesResponse: MessageFns<QuotesResponse> = {
             break;
           }
 
-          message.indicators.push(Candles.decode(reader, reader.uint32()));
+          message.candles = Candles.decode(reader, reader.uint32());
           continue;
         }
         case 3: {
@@ -361,11 +369,19 @@ export const QuotesResponse: MessageFns<QuotesResponse> = {
             break;
           }
 
-          message.time.push(fromTimestamp(Timestamp.decode(reader, reader.uint32())));
+          message.indicator1 = Prices.decode(reader, reader.uint32());
           continue;
         }
         case 4: {
           if (tag !== 34) {
+            break;
+          }
+
+          message.indicator2 = Prices.decode(reader, reader.uint32());
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
             break;
           }
 
@@ -386,55 +402,45 @@ export const QuotesResponse: MessageFns<QuotesResponse> = {
   },
   fromPartial(object: DeepPartial<QuotesResponse>): QuotesResponse {
     const message = createBaseQuotesResponse();
+    message.time = object.time?.map((e) => e) || [];
     message.candles = (object.candles !== undefined && object.candles !== null)
       ? Candles.fromPartial(object.candles)
       : undefined;
-    message.indicators = object.indicators?.map((e) => Candles.fromPartial(e)) || [];
-    message.time = object.time?.map((e) => e) || [];
+    message.indicator1 = (object.indicator1 !== undefined && object.indicator1 !== null)
+      ? Prices.fromPartial(object.indicator1)
+      : undefined;
+    message.indicator2 = (object.indicator2 !== undefined && object.indicator2 !== null)
+      ? Prices.fromPartial(object.indicator2)
+      : undefined;
     message.deals = object.deals?.map((e) => Deal.fromPartial(e)) || [];
     return message;
   },
 };
 
-function createBaseCandles(): Candles {
-  return { l: [], o: [], c: [], h: [] };
+function createBasePrices(): Prices {
+  return { price: [] };
 }
 
-export const Candles: MessageFns<Candles> = {
-  encode(message: Candles, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+export const Prices: MessageFns<Prices> = {
+  encode(message: Prices, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     writer.uint32(10).fork();
-    for (const v of message.l) {
-      writer.double(v);
-    }
-    writer.join();
-    writer.uint32(18).fork();
-    for (const v of message.o) {
-      writer.double(v);
-    }
-    writer.join();
-    writer.uint32(26).fork();
-    for (const v of message.c) {
-      writer.double(v);
-    }
-    writer.join();
-    writer.uint32(34).fork();
-    for (const v of message.h) {
+    for (const v of message.price) {
       writer.double(v);
     }
     writer.join();
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): Candles {
+  decode(input: BinaryReader | Uint8Array, length?: number): Prices {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseCandles();
+    const message = createBasePrices();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1: {
           if (tag === 9) {
-            message.l.push(reader.double());
+            message.price.push(reader.double());
 
             continue;
           }
@@ -442,61 +448,7 @@ export const Candles: MessageFns<Candles> = {
           if (tag === 10) {
             const end2 = reader.uint32() + reader.pos;
             while (reader.pos < end2) {
-              message.l.push(reader.double());
-            }
-
-            continue;
-          }
-
-          break;
-        }
-        case 2: {
-          if (tag === 17) {
-            message.o.push(reader.double());
-
-            continue;
-          }
-
-          if (tag === 18) {
-            const end2 = reader.uint32() + reader.pos;
-            while (reader.pos < end2) {
-              message.o.push(reader.double());
-            }
-
-            continue;
-          }
-
-          break;
-        }
-        case 3: {
-          if (tag === 25) {
-            message.c.push(reader.double());
-
-            continue;
-          }
-
-          if (tag === 26) {
-            const end2 = reader.uint32() + reader.pos;
-            while (reader.pos < end2) {
-              message.c.push(reader.double());
-            }
-
-            continue;
-          }
-
-          break;
-        }
-        case 4: {
-          if (tag === 33) {
-            message.h.push(reader.double());
-
-            continue;
-          }
-
-          if (tag === 34) {
-            const end2 = reader.uint32() + reader.pos;
-            while (reader.pos < end2) {
-              message.h.push(reader.double());
+              message.price.push(reader.double());
             }
 
             continue;
@@ -513,15 +465,94 @@ export const Candles: MessageFns<Candles> = {
     return message;
   },
 
+  create(base?: DeepPartial<Prices>): Prices {
+    return Prices.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<Prices>): Prices {
+    const message = createBasePrices();
+    message.price = object.price?.map((e) => e) || [];
+    return message;
+  },
+};
+
+function createBaseCandles(): Candles {
+  return { l: undefined, o: undefined, c: undefined, h: undefined };
+}
+
+export const Candles: MessageFns<Candles> = {
+  encode(message: Candles, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.l !== undefined) {
+      Prices.encode(message.l, writer.uint32(10).fork()).join();
+    }
+    if (message.o !== undefined) {
+      Prices.encode(message.o, writer.uint32(18).fork()).join();
+    }
+    if (message.c !== undefined) {
+      Prices.encode(message.c, writer.uint32(26).fork()).join();
+    }
+    if (message.h !== undefined) {
+      Prices.encode(message.h, writer.uint32(34).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): Candles {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseCandles();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.l = Prices.decode(reader, reader.uint32());
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.o = Prices.decode(reader, reader.uint32());
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.c = Prices.decode(reader, reader.uint32());
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.h = Prices.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
   create(base?: DeepPartial<Candles>): Candles {
     return Candles.fromPartial(base ?? {});
   },
   fromPartial(object: DeepPartial<Candles>): Candles {
     const message = createBaseCandles();
-    message.l = object.l?.map((e) => e) || [];
-    message.o = object.o?.map((e) => e) || [];
-    message.c = object.c?.map((e) => e) || [];
-    message.h = object.h?.map((e) => e) || [];
+    message.l = (object.l !== undefined && object.l !== null) ? Prices.fromPartial(object.l) : undefined;
+    message.o = (object.o !== undefined && object.o !== null) ? Prices.fromPartial(object.o) : undefined;
+    message.c = (object.c !== undefined && object.c !== null) ? Prices.fromPartial(object.c) : undefined;
+    message.h = (object.h !== undefined && object.h !== null) ? Prices.fromPartial(object.h) : undefined;
     return message;
   },
 };

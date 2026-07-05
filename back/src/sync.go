@@ -1,7 +1,6 @@
 package main
 
 import (
-	"analyzer"
 	"clickhouse"
 	"config"
 	"context"
@@ -10,6 +9,7 @@ import (
 	"logger"
 	"net/http"
 	"net/url"
+	"source"
 	"strconv"
 	"time"
 
@@ -265,7 +265,7 @@ func saveCandles(ctx context.Context, conn driver.Conn, candles []Candle) error 
 	return nil
 }
 
-func loadMarketData(ctx context.Context, ch *clickhouse.Client, symbol, timeframe string) (analyzer.Quotes, error) {
+func loadMarketData(ctx context.Context, ch *clickhouse.Client, symbol, timeframe string) (source.Quotes, error) {
 	//period := time.Now().AddDate(-2, 0, 0)
 	period := time.Now().AddDate(-2, 0, 0)
 	query := `
@@ -276,11 +276,11 @@ func loadMarketData(ctx context.Context, ch *clickhouse.Client, symbol, timefram
 	`
 	rows, err := ch.Conn().Query(ctx, query, symbol, timeframe, period)
 	if err != nil {
-		return analyzer.Quotes{}, fmt.Errorf("failed to query market data: %w", err)
+		return source.Quotes{}, fmt.Errorf("failed to query market data: %w", err)
 	}
 	defer rows.Close()
 
-	var res analyzer.Quotes
+	var res source.Quotes
 
 	for rows.Next() {
 		var (
@@ -288,7 +288,7 @@ func loadMarketData(ctx context.Context, ch *clickhouse.Client, symbol, timefram
 			l, o, c, h, v float64
 		)
 		if err = rows.Scan(&ts, &l, &o, &c, &h, &v); err != nil {
-			return analyzer.Quotes{}, fmt.Errorf("failed to scan row: %w", err)
+			return source.Quotes{}, fmt.Errorf("failed to scan row: %w", err)
 		}
 		res.Timestamps = append(res.Timestamps, ts)
 		res.Lows = append(res.Lows, l)
@@ -299,7 +299,7 @@ func loadMarketData(ctx context.Context, ch *clickhouse.Client, symbol, timefram
 	}
 
 	if err = rows.Err(); err != nil {
-		return analyzer.Quotes{}, fmt.Errorf("error during row iteration: %w", err)
+		return source.Quotes{}, fmt.Errorf("error during row iteration: %w", err)
 	}
 
 	return res, nil

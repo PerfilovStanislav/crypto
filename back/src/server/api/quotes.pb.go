@@ -378,10 +378,11 @@ func (x *Indicator) GetSource() SourceTypeEnum {
 
 type QuotesResponse struct {
 	state         protoimpl.MessageState   `protogen:"open.v1"`
-	Candles       *Candles                 `protobuf:"bytes,1,opt,name=candles,proto3" json:"candles,omitempty"`
-	Indicators    []*Candles               `protobuf:"bytes,2,rep,name=indicators,proto3" json:"indicators,omitempty"`
-	Time          []*timestamppb.Timestamp `protobuf:"bytes,3,rep,name=time,proto3" json:"time,omitempty"`
-	Deals         []*Deal                  `protobuf:"bytes,4,rep,name=deals,proto3" json:"deals,omitempty"`
+	Time          []*timestamppb.Timestamp `protobuf:"bytes,1,rep,name=time,proto3" json:"time,omitempty"`
+	Candles       *Candles                 `protobuf:"bytes,2,opt,name=candles,proto3" json:"candles,omitempty"`
+	Indicator1    *Prices                  `protobuf:"bytes,3,opt,name=indicator1,proto3" json:"indicator1,omitempty"`
+	Indicator2    *Prices                  `protobuf:"bytes,4,opt,name=indicator2,proto3" json:"indicator2,omitempty"`
+	Deals         []*Deal                  `protobuf:"bytes,5,rep,name=deals,proto3" json:"deals,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -416,6 +417,13 @@ func (*QuotesResponse) Descriptor() ([]byte, []int) {
 	return file_api_quotes_proto_rawDescGZIP(), []int{2}
 }
 
+func (x *QuotesResponse) GetTime() []*timestamppb.Timestamp {
+	if x != nil {
+		return x.Time
+	}
+	return nil
+}
+
 func (x *QuotesResponse) GetCandles() *Candles {
 	if x != nil {
 		return x.Candles
@@ -423,16 +431,16 @@ func (x *QuotesResponse) GetCandles() *Candles {
 	return nil
 }
 
-func (x *QuotesResponse) GetIndicators() []*Candles {
+func (x *QuotesResponse) GetIndicator1() *Prices {
 	if x != nil {
-		return x.Indicators
+		return x.Indicator1
 	}
 	return nil
 }
 
-func (x *QuotesResponse) GetTime() []*timestamppb.Timestamp {
+func (x *QuotesResponse) GetIndicator2() *Prices {
 	if x != nil {
-		return x.Time
+		return x.Indicator2
 	}
 	return nil
 }
@@ -444,19 +452,63 @@ func (x *QuotesResponse) GetDeals() []*Deal {
 	return nil
 }
 
+type Prices struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Price         []float64              `protobuf:"fixed64,1,rep,packed,name=price,proto3" json:"price,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Prices) Reset() {
+	*x = Prices{}
+	mi := &file_api_quotes_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Prices) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Prices) ProtoMessage() {}
+
+func (x *Prices) ProtoReflect() protoreflect.Message {
+	mi := &file_api_quotes_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Prices.ProtoReflect.Descriptor instead.
+func (*Prices) Descriptor() ([]byte, []int) {
+	return file_api_quotes_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *Prices) GetPrice() []float64 {
+	if x != nil {
+		return x.Price
+	}
+	return nil
+}
+
 type Candles struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	L             []float64              `protobuf:"fixed64,1,rep,packed,name=l,proto3" json:"l,omitempty"`
-	O             []float64              `protobuf:"fixed64,2,rep,packed,name=o,proto3" json:"o,omitempty"`
-	C             []float64              `protobuf:"fixed64,3,rep,packed,name=c,proto3" json:"c,omitempty"`
-	H             []float64              `protobuf:"fixed64,4,rep,packed,name=h,proto3" json:"h,omitempty"`
+	L             *Prices                `protobuf:"bytes,1,opt,name=l,proto3" json:"l,omitempty"`
+	O             *Prices                `protobuf:"bytes,2,opt,name=o,proto3" json:"o,omitempty"`
+	C             *Prices                `protobuf:"bytes,3,opt,name=c,proto3" json:"c,omitempty"`
+	H             *Prices                `protobuf:"bytes,4,opt,name=h,proto3" json:"h,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Candles) Reset() {
 	*x = Candles{}
-	mi := &file_api_quotes_proto_msgTypes[3]
+	mi := &file_api_quotes_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -468,7 +520,7 @@ func (x *Candles) String() string {
 func (*Candles) ProtoMessage() {}
 
 func (x *Candles) ProtoReflect() protoreflect.Message {
-	mi := &file_api_quotes_proto_msgTypes[3]
+	mi := &file_api_quotes_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -481,31 +533,31 @@ func (x *Candles) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Candles.ProtoReflect.Descriptor instead.
 func (*Candles) Descriptor() ([]byte, []int) {
-	return file_api_quotes_proto_rawDescGZIP(), []int{3}
+	return file_api_quotes_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *Candles) GetL() []float64 {
+func (x *Candles) GetL() *Prices {
 	if x != nil {
 		return x.L
 	}
 	return nil
 }
 
-func (x *Candles) GetO() []float64 {
+func (x *Candles) GetO() *Prices {
 	if x != nil {
 		return x.O
 	}
 	return nil
 }
 
-func (x *Candles) GetC() []float64 {
+func (x *Candles) GetC() *Prices {
 	if x != nil {
 		return x.C
 	}
 	return nil
 }
 
-func (x *Candles) GetH() []float64 {
+func (x *Candles) GetH() *Prices {
 	if x != nil {
 		return x.H
 	}
@@ -522,7 +574,7 @@ type Deal struct {
 
 func (x *Deal) Reset() {
 	*x = Deal{}
-	mi := &file_api_quotes_proto_msgTypes[4]
+	mi := &file_api_quotes_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -534,7 +586,7 @@ func (x *Deal) String() string {
 func (*Deal) ProtoMessage() {}
 
 func (x *Deal) ProtoReflect() protoreflect.Message {
-	mi := &file_api_quotes_proto_msgTypes[4]
+	mi := &file_api_quotes_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -547,7 +599,7 @@ func (x *Deal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Deal.ProtoReflect.Descriptor instead.
 func (*Deal) Descriptor() ([]byte, []int) {
-	return file_api_quotes_proto_rawDescGZIP(), []int{4}
+	return file_api_quotes_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Deal) GetOpen() int32 {
@@ -581,19 +633,24 @@ const file_api_quotes_proto_rawDesc = "" +
 	"\tIndicator\x12*\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x16.api.IndicatorTypeEnumR\x04type\x12\x12\n" +
 	"\x04coef\x18\x02 \x01(\x01R\x04coef\x12+\n" +
-	"\x06source\x18\x03 \x01(\x0e2\x13.api.SourceTypeEnumR\x06source\"\xb7\x01\n" +
-	"\x0eQuotesResponse\x12&\n" +
-	"\acandles\x18\x01 \x01(\v2\f.api.CandlesR\acandles\x12,\n" +
+	"\x06source\x18\x03 \x01(\x0e2\x13.api.SourceTypeEnumR\x06source\"\xe3\x01\n" +
+	"\x0eQuotesResponse\x12.\n" +
+	"\x04time\x18\x01 \x03(\v2\x1a.google.protobuf.TimestampR\x04time\x12&\n" +
+	"\acandles\x18\x02 \x01(\v2\f.api.CandlesR\acandles\x12+\n" +
 	"\n" +
-	"indicators\x18\x02 \x03(\v2\f.api.CandlesR\n" +
-	"indicators\x12.\n" +
-	"\x04time\x18\x03 \x03(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x1f\n" +
-	"\x05deals\x18\x04 \x03(\v2\t.api.DealR\x05deals\"A\n" +
-	"\aCandles\x12\f\n" +
-	"\x01l\x18\x01 \x03(\x01R\x01l\x12\f\n" +
-	"\x01o\x18\x02 \x03(\x01R\x01o\x12\f\n" +
-	"\x01c\x18\x03 \x03(\x01R\x01c\x12\f\n" +
-	"\x01h\x18\x04 \x03(\x01R\x01h\"0\n" +
+	"indicator1\x18\x03 \x01(\v2\v.api.PricesR\n" +
+	"indicator1\x12+\n" +
+	"\n" +
+	"indicator2\x18\x04 \x01(\v2\v.api.PricesR\n" +
+	"indicator2\x12\x1f\n" +
+	"\x05deals\x18\x05 \x03(\v2\t.api.DealR\x05deals\"\x1e\n" +
+	"\x06Prices\x12\x14\n" +
+	"\x05price\x18\x01 \x03(\x01R\x05price\"u\n" +
+	"\aCandles\x12\x19\n" +
+	"\x01l\x18\x01 \x01(\v2\v.api.PricesR\x01l\x12\x19\n" +
+	"\x01o\x18\x02 \x01(\v2\v.api.PricesR\x01o\x12\x19\n" +
+	"\x01c\x18\x03 \x01(\v2\v.api.PricesR\x01c\x12\x19\n" +
+	"\x01h\x18\x04 \x01(\v2\v.api.PricesR\x01h\"0\n" +
 	"\x04Deal\x12\x12\n" +
 	"\x04open\x18\x01 \x01(\x05R\x04open\x12\x14\n" +
 	"\x05close\x18\x02 \x01(\x05R\x05close*\xbc\x01\n" +
@@ -646,7 +703,7 @@ func file_api_quotes_proto_rawDescGZIP() []byte {
 }
 
 var file_api_quotes_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_api_quotes_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_api_quotes_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_api_quotes_proto_goTypes = []any{
 	(TimeframeEnum)(0),            // 0: api.TimeframeEnum
 	(IndicatorTypeEnum)(0),        // 1: api.IndicatorTypeEnum
@@ -654,25 +711,31 @@ var file_api_quotes_proto_goTypes = []any{
 	(*QuotesRequest)(nil),         // 3: api.QuotesRequest
 	(*Indicator)(nil),             // 4: api.Indicator
 	(*QuotesResponse)(nil),        // 5: api.QuotesResponse
-	(*Candles)(nil),               // 6: api.Candles
-	(*Deal)(nil),                  // 7: api.Deal
-	(*timestamppb.Timestamp)(nil), // 8: google.protobuf.Timestamp
+	(*Prices)(nil),                // 6: api.Prices
+	(*Candles)(nil),               // 7: api.Candles
+	(*Deal)(nil),                  // 8: api.Deal
+	(*timestamppb.Timestamp)(nil), // 9: google.protobuf.Timestamp
 }
 var file_api_quotes_proto_depIdxs = []int32{
-	0, // 0: api.QuotesRequest.tf:type_name -> api.TimeframeEnum
-	4, // 1: api.QuotesRequest.ind1:type_name -> api.Indicator
-	4, // 2: api.QuotesRequest.ind2:type_name -> api.Indicator
-	1, // 3: api.Indicator.type:type_name -> api.IndicatorTypeEnum
-	2, // 4: api.Indicator.source:type_name -> api.SourceTypeEnum
-	6, // 5: api.QuotesResponse.candles:type_name -> api.Candles
-	6, // 6: api.QuotesResponse.indicators:type_name -> api.Candles
-	8, // 7: api.QuotesResponse.time:type_name -> google.protobuf.Timestamp
-	7, // 8: api.QuotesResponse.deals:type_name -> api.Deal
-	9, // [9:9] is the sub-list for method output_type
-	9, // [9:9] is the sub-list for method input_type
-	9, // [9:9] is the sub-list for extension type_name
-	9, // [9:9] is the sub-list for extension extendee
-	0, // [0:9] is the sub-list for field type_name
+	0,  // 0: api.QuotesRequest.tf:type_name -> api.TimeframeEnum
+	4,  // 1: api.QuotesRequest.ind1:type_name -> api.Indicator
+	4,  // 2: api.QuotesRequest.ind2:type_name -> api.Indicator
+	1,  // 3: api.Indicator.type:type_name -> api.IndicatorTypeEnum
+	2,  // 4: api.Indicator.source:type_name -> api.SourceTypeEnum
+	9,  // 5: api.QuotesResponse.time:type_name -> google.protobuf.Timestamp
+	7,  // 6: api.QuotesResponse.candles:type_name -> api.Candles
+	6,  // 7: api.QuotesResponse.indicator1:type_name -> api.Prices
+	6,  // 8: api.QuotesResponse.indicator2:type_name -> api.Prices
+	8,  // 9: api.QuotesResponse.deals:type_name -> api.Deal
+	6,  // 10: api.Candles.l:type_name -> api.Prices
+	6,  // 11: api.Candles.o:type_name -> api.Prices
+	6,  // 12: api.Candles.c:type_name -> api.Prices
+	6,  // 13: api.Candles.h:type_name -> api.Prices
+	14, // [14:14] is the sub-list for method output_type
+	14, // [14:14] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_api_quotes_proto_init() }
@@ -686,7 +749,7 @@ func file_api_quotes_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_quotes_proto_rawDesc), len(file_api_quotes_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   5,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -60,17 +60,22 @@ enum SourceTypeEnum {
 }
 
 message QuotesResponse {
-  Candles candles = 1;
-  repeated Candles indicators = 2;
-  repeated google.protobuf.Timestamp time = 3;
-  repeated Deal deals = 4;
+  repeated google.protobuf.Timestamp time = 1;
+  Candles candles = 2;
+  Prices indicator1 = 3;
+  Prices indicator2 = 4;
+  repeated Deal deals = 5;
+}
+
+message Prices {
+  repeated double price = 1;
 }
 
 message Candles {
-  repeated double l = 1;
-  repeated double o = 2;
-  repeated double c = 3;
-  repeated double h = 4;
+  Prices l = 1;
+  Prices o = 2;
+  Prices c = 3;
+  Prices h = 4;
 }
 
 message Deal {

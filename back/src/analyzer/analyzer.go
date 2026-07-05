@@ -9,17 +9,7 @@ import (
 	"source"
 	"sync"
 	"sync/atomic"
-	"time"
 )
-
-type Quotes struct {
-	Timestamps []time.Time
-	Lows       []float64
-	Opens      []float64
-	Closes     []float64
-	Highs      []float64
-	Volumes    []float64
-}
 
 type TpSlParam struct {
 	tp float64
@@ -35,7 +25,7 @@ type Coef float64
 
 type Analyzer struct {
 	cfg         config.AnalyzerConfig
-	quotes      Quotes
+	quotes      source.Quotes
 	ln          int
 	Results     chan TaskResult
 	maxCoefBits uint64
@@ -69,7 +59,7 @@ var (
 	IndicatorsCompares   = make(map[IndicatorsCompare][]int)
 )
 
-func New(cfg config.AnalyzerConfig, quotes Quotes) *Analyzer {
+func New(cfg config.AnalyzerConfig, quotes source.Quotes) *Analyzer {
 	return &Analyzer{
 		cfg:     cfg,
 		quotes:  quotes,
@@ -288,46 +278,28 @@ func (a *Analyzer) getPricesBySource(t source.Type) []float64 {
 	case source.V:
 		return a.quotes.Volumes
 	case source.LO:
-		return AverageSlices(a.quotes.Lows, a.quotes.Opens)
+		return source.AverageTwoSlices(a.quotes.Lows, a.quotes.Opens)
 	case source.LC:
-		return AverageSlices(a.quotes.Lows, a.quotes.Closes)
+		return source.AverageTwoSlices(a.quotes.Lows, a.quotes.Closes)
 	case source.LH:
-		return AverageSlices(a.quotes.Lows, a.quotes.Highs)
+		return source.AverageTwoSlices(a.quotes.Lows, a.quotes.Highs)
 	case source.OC:
-		return AverageSlices(a.quotes.Opens, a.quotes.Closes)
+		return source.AverageTwoSlices(a.quotes.Opens, a.quotes.Closes)
 	case source.OH:
-		return AverageSlices(a.quotes.Opens, a.quotes.Highs)
+		return source.AverageTwoSlices(a.quotes.Opens, a.quotes.Highs)
 	case source.CH:
-		return AverageSlices(a.quotes.Closes, a.quotes.Highs)
+		return source.AverageTwoSlices(a.quotes.Closes, a.quotes.Highs)
 	case source.LOC:
-		return AverageSlices(a.quotes.Lows, a.quotes.Opens, a.quotes.Closes)
+		return source.AverageThreeSlices(a.quotes.Lows, a.quotes.Opens, a.quotes.Closes)
 	case source.LOH:
-		return AverageSlices(a.quotes.Lows, a.quotes.Opens, a.quotes.Highs)
+		return source.AverageThreeSlices(a.quotes.Lows, a.quotes.Opens, a.quotes.Highs)
 	case source.LCH:
-		return AverageSlices(a.quotes.Lows, a.quotes.Closes, a.quotes.Highs)
+		return source.AverageThreeSlices(a.quotes.Lows, a.quotes.Closes, a.quotes.Highs)
 	case source.OCH:
-		return AverageSlices(a.quotes.Opens, a.quotes.Closes, a.quotes.Highs)
+		return source.AverageThreeSlices(a.quotes.Opens, a.quotes.Closes, a.quotes.Highs)
 	}
 
 	return nil
-}
-
-func AverageSlices(slices ...[]float64) []float64 {
-	length := len(slices[0])
-	result := make([]float64, length)
-
-	for _, slice := range slices {
-		for i, v := range slice {
-			result[i] += v
-		}
-	}
-
-	divisor := float64(len(slices))
-	for i := range result {
-		result[i] /= divisor
-	}
-
-	return result
 }
 
 func (a *Analyzer) hasEnoughCloses(param TpSlParam) bool {

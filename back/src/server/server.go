@@ -1,7 +1,6 @@
 package server
 
 import (
-	"clickhouse"
 	"config"
 	"context"
 	"crypto/rand"
@@ -13,6 +12,7 @@ import (
 	"log/slog"
 	"logger"
 	"net/http"
+	"source"
 	"strings"
 	"time"
 
@@ -28,11 +28,11 @@ const (
 
 type Server struct {
 	*http.Server
-	ch  *clickhouse.Client
-	log *logger.Logger
+	quotes source.Quotes
+	log    *logger.Logger
 }
 
-func New(log *logger.Logger, cfg config.HttpConfig, ch *clickhouse.Client) *Server {
+func New(log *logger.Logger, cfg config.HttpConfig, quotes source.Quotes) *Server {
 	ser := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),
 		ErrorLog:     log.StdLogger(slog.LevelError),
@@ -41,7 +41,7 @@ func New(log *logger.Logger, cfg config.HttpConfig, ch *clickhouse.Client) *Serv
 		IdleTimeout:  60 * time.Second,
 	}
 
-	s := &Server{ser, ch, log}
+	s := &Server{ser, quotes, log}
 	s.Handler = s.router()
 
 	return s
