@@ -30,7 +30,8 @@ type DbConfig struct {
 }
 
 type HttpConfig struct {
-	Port int `yaml:"port" env:"PORT" env-default:"8888"`
+	Port   int  `yaml:"port" env:"PORT" env-default:"8888"`
+	Active bool `yaml:"active" env:"ACTIVE"`
 }
 
 type AnalyzerConfig struct {
