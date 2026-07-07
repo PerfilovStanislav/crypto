@@ -67,12 +67,12 @@ func run() error {
 		return fmt.Errorf("failed to load market data: %w", err)
 	}
 
-	srv := server.New(log, cfg.Http, quotes)
-	graceful.Add(srv)
-	srv.Run(gCtx, g)
-
 	// Инициализация сервиса Analyzer и проведение анализа котировок
 	az := analyzer.New(cfg.Analyzer, quotes)
+
+	srv := server.New(log, cfg.Http, az)
+	graceful.Add(srv)
+	srv.Run(gCtx, g)
 
 	start := time.Now()
 

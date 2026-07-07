@@ -1,6 +1,7 @@
 package server
 
 import (
+	"analyzer"
 	"config"
 	"context"
 	"crypto/rand"
@@ -12,7 +13,6 @@ import (
 	"log/slog"
 	"logger"
 	"net/http"
-	"source"
 	"strings"
 	"time"
 
@@ -28,11 +28,11 @@ const (
 
 type Server struct {
 	*http.Server
-	quotes source.Quotes
-	log    *logger.Logger
+	az  *analyzer.Analyzer
+	log *logger.Logger
 }
 
-func New(log *logger.Logger, cfg config.HttpConfig, quotes source.Quotes) *Server {
+func New(log *logger.Logger, cfg config.HttpConfig, az *analyzer.Analyzer) *Server {
 	ser := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),
 		ErrorLog:     log.StdLogger(slog.LevelError),
@@ -41,7 +41,7 @@ func New(log *logger.Logger, cfg config.HttpConfig, quotes source.Quotes) *Serve
 		IdleTimeout:  60 * time.Second,
 	}
 
-	s := &Server{ser, quotes, log}
+	s := &Server{ser, az, log}
 	s.Handler = s.router()
 
 	return s

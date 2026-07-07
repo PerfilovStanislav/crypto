@@ -11,21 +11,16 @@ import (
 	"sync/atomic"
 )
 
-type TpSlParam struct {
-	tp float64
-	sl float64
-}
-
 type TpSlClose struct {
-	indexes []int
-	coefs   []float64
+	Indexes []int
+	Coefs   []float64
 }
 
 type Coef float64
 
 type Analyzer struct {
-	cfg         config.AnalyzerConfig
-	quotes      source.Quotes
+	Cfg         config.AnalyzerConfig
+	Quotes      source.Quotes
 	ln          int
 	Results     chan TaskResult
 	maxCoefBits uint64
@@ -61,8 +56,8 @@ var (
 
 func New(cfg config.AnalyzerConfig, quotes source.Quotes) *Analyzer {
 	return &Analyzer{
-		cfg:     cfg,
-		quotes:  quotes,
+		Cfg:     cfg,
+		Quotes:  quotes,
 		ln:      len(quotes.Opens),
 		Results: make(chan TaskResult, cfg.Threads),
 	}
@@ -83,7 +78,7 @@ func (a *Analyzer) updateMaxCoef(val float64) bool {
 }
 
 func (a *Analyzer) Run() {
-	runtime.GOMAXPROCS(a.cfg.Threads)
+	runtime.GOMAXPROCS(a.Cfg.Threads)
 
 	a.fillIndicatorParamGroups()
 	a.fillTakeprofitStoplossParams()
@@ -105,9 +100,11 @@ func (a *Analyzer) Run() {
 
 	numJobs := int64(len(jobs))
 	var index int64 = 0
+	var completed int64 = 0
+	var printedPct [11]int32
 	var wg sync.WaitGroup
 
-	for w := 0; w < a.cfg.Threads; w++ {
+	for w := 0; w < a.Cfg.Threads; w++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -118,7 +115,27 @@ func (a *Analyzer) Run() {
 				}
 				job := jobs[idx]
 				for tpSlParam, tpSlClose := range TpSlCloses {
-					a.testTaskDirect(job.ic, job.signals, tpSlParam, tpSlClose.coefs, tpSlClose.indexes)
+					a.testTaskDirect(job.ic, job.signals, tpSlParam, tpSlClose.Coefs, tpSlClose.Indexes)
+				}
+
+				// Increment completed count and print progress bar at 10% steps
+				completedVal := atomic.AddInt64(&completed, 1)
+				if numJobs > 0 {
+					pct := (completedVal * 10) / numJobs
+					if pct > 0 && pct <= 10 {
+						if atomic.CompareAndSwapInt32(&printedPct[pct], 0, 1) {
+							pctVal := pct * 10
+							bar := ""
+							for i := 0; i < 10; i++ {
+								if i < int(pct) {
+									bar += "█"
+								} else {
+									bar += "░"
+								}
+							}
+							fmt.Printf("Progress: [%s] %d%% (%d/%d jobs)\n", bar, pctVal, completedVal, numJobs)
+						}
+					}
 				}
 			}
 		}()
@@ -177,12 +194,12 @@ func (a *Analyzer) resultChannelHandler() <-chan struct{} {
 }
 
 func (a *Analyzer) fillIndicatorParamGroups() {
-	for g, indicatorGroup := range a.cfg.Indicators {
+	for g, indicatorGroup := range a.Cfg.Indicators {
 		IndicatorParamGroups[g] = make([]IndicatorParams, 0)
 
 		for _, ind := range indicatorGroup {
 			for _, src := range ind.Sources {
-				prices := a.getPricesBySource(src)
+				prices := a.GetPricesBySource(src)
 
 				coefCfg := ind.Coefs
 				for coef := coefCfg.Start; coef <= coefCfg.End; coef += coefCfg.Step {
@@ -202,17 +219,17 @@ func (a *Analyzer) fillIndicatorParamGroups() {
 }
 
 func (a *Analyzer) fillTakeprofitStoplossParams() {
-	for tp := a.cfg.Takeprofit.Start; tp <= a.cfg.Takeprofit.End; tp += a.cfg.Takeprofit.Step {
-		for sl := a.cfg.Stoploss.Start; sl <= a.cfg.Stoploss.End; sl += a.cfg.Stoploss.Step {
+	for tp := a.Cfg.Takeprofit.Start; tp <= a.Cfg.Takeprofit.End; tp += a.Cfg.Takeprofit.Step {
+		for sl := a.Cfg.Stoploss.Start; sl <= a.Cfg.Stoploss.End; sl += a.Cfg.Stoploss.Step {
 			param := TpSlParam{
-				tp: tp,
-				sl: sl,
+				Tp: tp,
+				Sl: sl,
 			}
 			if !a.hasEnoughCloses(param) {
 				break
 			}
 
-			TpSlCloses[param] = a.calculateClosings(param)
+			TpSlCloses[param] = CalculateClosings(a.Quotes, param, a.Cfg.Commission)
 		}
 	}
 }
@@ -243,7 +260,7 @@ func (a *Analyzer) fillIndicatorsCompares() {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
-	for w := 0; w < a.cfg.Threads; w++ {
+	for w := 0; w < a.Cfg.Threads; w++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -253,7 +270,10 @@ func (a *Analyzer) fillIndicatorsCompares() {
 					break
 				}
 				job := jobs[idx]
-				indexes := a.compareIndicators(job.compareParams)
+				compareParams := job.compareParams
+				currentPrices := IndicatorPrices[compareParams.Indicator1Params]
+				nextPrices := IndicatorPrices[compareParams.Indicator2Params]
+				indexes := a.CompareIndicators(currentPrices, nextPrices)
 				if indexes != nil {
 					mu.Lock()
 					IndicatorsCompares[job.compareParams] = indexes
@@ -265,38 +285,38 @@ func (a *Analyzer) fillIndicatorsCompares() {
 	wg.Wait()
 }
 
-func (a *Analyzer) getPricesBySource(t source.Type) []float64 {
+func (a *Analyzer) GetPricesBySource(t source.Type) []float64 {
 	switch t {
 	case source.L:
-		return a.quotes.Lows
+		return a.Quotes.Lows
 	case source.O:
-		return a.quotes.Opens
+		return a.Quotes.Opens
 	case source.C:
-		return a.quotes.Closes
+		return a.Quotes.Closes
 	case source.H:
-		return a.quotes.Highs
+		return a.Quotes.Highs
 	case source.V:
-		return a.quotes.Volumes
+		return a.Quotes.Volumes
 	case source.LO:
-		return source.AverageTwoSlices(a.quotes.Lows, a.quotes.Opens)
+		return source.AverageTwoSlices(a.Quotes.Lows, a.Quotes.Opens)
 	case source.LC:
-		return source.AverageTwoSlices(a.quotes.Lows, a.quotes.Closes)
+		return source.AverageTwoSlices(a.Quotes.Lows, a.Quotes.Closes)
 	case source.LH:
-		return source.AverageTwoSlices(a.quotes.Lows, a.quotes.Highs)
+		return source.AverageTwoSlices(a.Quotes.Lows, a.Quotes.Highs)
 	case source.OC:
-		return source.AverageTwoSlices(a.quotes.Opens, a.quotes.Closes)
+		return source.AverageTwoSlices(a.Quotes.Opens, a.Quotes.Closes)
 	case source.OH:
-		return source.AverageTwoSlices(a.quotes.Opens, a.quotes.Highs)
+		return source.AverageTwoSlices(a.Quotes.Opens, a.Quotes.Highs)
 	case source.CH:
-		return source.AverageTwoSlices(a.quotes.Closes, a.quotes.Highs)
+		return source.AverageTwoSlices(a.Quotes.Closes, a.Quotes.Highs)
 	case source.LOC:
-		return source.AverageThreeSlices(a.quotes.Lows, a.quotes.Opens, a.quotes.Closes)
+		return source.AverageThreeSlices(a.Quotes.Lows, a.Quotes.Opens, a.Quotes.Closes)
 	case source.LOH:
-		return source.AverageThreeSlices(a.quotes.Lows, a.quotes.Opens, a.quotes.Highs)
+		return source.AverageThreeSlices(a.Quotes.Lows, a.Quotes.Opens, a.Quotes.Highs)
 	case source.LCH:
-		return source.AverageThreeSlices(a.quotes.Lows, a.quotes.Closes, a.quotes.Highs)
+		return source.AverageThreeSlices(a.Quotes.Lows, a.Quotes.Closes, a.Quotes.Highs)
 	case source.OCH:
-		return source.AverageThreeSlices(a.quotes.Opens, a.quotes.Closes, a.quotes.Highs)
+		return source.AverageThreeSlices(a.Quotes.Opens, a.Quotes.Closes, a.Quotes.Highs)
 	}
 
 	return nil
@@ -306,18 +326,18 @@ func (a *Analyzer) hasEnoughCloses(param TpSlParam) bool {
 	openedPrice := 0.0
 	closes := 0
 
-	for i, v := range a.quotes.Opens {
+	for i, v := range a.Quotes.Opens {
 		if openedPrice == 0.0 {
 			openedPrice = v
 		}
 
-		if a.quotes.Highs[i] >= openedPrice+param.tp {
+		if a.Quotes.Highs[i] >= openedPrice+param.Tp {
 			closes++ // for long positions
-			if closes >= a.cfg.MinCloses {
+			if closes >= a.Cfg.MinCloses {
 				return true
 			}
 			openedPrice = 0.0
-		} else if a.quotes.Lows[i] <= openedPrice-param.sl {
+		} else if a.Quotes.Lows[i] <= openedPrice-param.Sl {
 			openedPrice = 0.0
 		}
 	}
@@ -325,41 +345,39 @@ func (a *Analyzer) hasEnoughCloses(param TpSlParam) bool {
 	return false
 }
 
-func (a *Analyzer) calculateClosings(p TpSlParam) TpSlClose {
+func CalculateClosings(quotes source.Quotes, p TpSlParam, comission float64) TpSlClose {
+	ln := len(quotes.Lows)
 	c := TpSlClose{
-		indexes: make([]int, a.ln),
-		coefs:   make([]float64, a.ln),
+		Indexes: make([]int, ln),
+		Coefs:   make([]float64, ln),
 	}
-	commsision := (1 - a.cfg.Commission) * (1 - a.cfg.Commission)
+	commsision := (1 - comission) * (1 - comission)
 
 level2:
-	for i, openedPrice := range a.quotes.Opens {
-		for k := i; k < a.ln; k++ {
-			if a.quotes.Highs[k] >= openedPrice+p.tp {
-				coef := commsision * (openedPrice + p.tp) / openedPrice
-				c.indexes[i] = k
-				c.coefs[i] = coef
+	for i, openedPrice := range quotes.Opens {
+		for k := i; k < ln; k++ {
+			if quotes.Highs[k] >= openedPrice+p.Tp {
+				coef := commsision * (openedPrice + p.Tp) / openedPrice
+				c.Indexes[i] = k
+				c.Coefs[i] = coef
 				continue level2
-			} else if a.quotes.Lows[k] <= openedPrice-p.sl {
-				coef := commsision * (openedPrice - p.sl) / openedPrice
-				c.indexes[i] = k
-				c.coefs[i] = coef
+			} else if quotes.Lows[k] <= openedPrice-p.Sl {
+				coef := commsision * (openedPrice - p.Sl) / openedPrice
+				c.Indexes[i] = k
+				c.Coefs[i] = coef
 				continue level2
 			}
 		}
-		for k := i; k < a.ln; k++ {
-			c.indexes[k] = a.ln
-			c.coefs[k] = 1.0
+		for k := i; k < ln; k++ {
+			c.Indexes[k] = ln
+			c.Coefs[k] = 1.0
 		}
 	}
 
 	return c
 }
 
-func (a *Analyzer) compareIndicators(p IndicatorsCompare) []int {
-	currentPrices := IndicatorPrices[p.Indicator1Params]
-	nextPrices := IndicatorPrices[p.Indicator2Params]
-
+func (a *Analyzer) CompareIndicators(currentPrices, nextPrices []float64) []int {
 	matchCount := 0
 	for i := 0; i < a.ln-1; i++ {
 		if nextPrices[i] > currentPrices[i] {
@@ -367,7 +385,7 @@ func (a *Analyzer) compareIndicators(p IndicatorsCompare) []int {
 		}
 	}
 
-	if matchCount < a.cfg.MinSignals {
+	if matchCount < a.Cfg.MinSignals {
 		return nil
 	}
 

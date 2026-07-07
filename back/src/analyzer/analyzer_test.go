@@ -36,7 +36,7 @@ func TestAnalyzer_Run_Concurrency(t *testing.T) {
 		},
 	}
 
-	// Create dummy quotes data
+	// Create dummy Quotes data
 	n := 100
 	quotes := source.Quotes{
 		Timestamps: make([]time.Time, n),
