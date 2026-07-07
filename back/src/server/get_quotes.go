@@ -169,6 +169,7 @@ func (s *Server) getQuotes(w http.ResponseWriter, body []byte) error {
 		Indicator1: &api.Prices{Price: ind1Prices},
 		Indicator2: &api.Prices{Price: ind2Prices},
 		Deals:      deals,
+		Symbol:     s.az.Cfg.Pair,
 	})
 }
 

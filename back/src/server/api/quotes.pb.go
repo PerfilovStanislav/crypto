@@ -234,7 +234,6 @@ func (SourceTypeEnum) EnumDescriptor() ([]byte, []int) {
 
 type QuotesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Symbol        string                 `protobuf:"bytes,1,opt,name=symbol,proto3" json:"symbol,omitempty"`
 	Tf            TimeframeEnum          `protobuf:"varint,2,opt,name=tf,proto3,enum=api.TimeframeEnum" json:"tf,omitempty"`
 	Takeprofit    float64                `protobuf:"fixed64,3,opt,name=takeprofit,proto3" json:"takeprofit,omitempty"`
 	Stoploss      float64                `protobuf:"fixed64,4,opt,name=stoploss,proto3" json:"stoploss,omitempty"`
@@ -272,13 +271,6 @@ func (x *QuotesRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use QuotesRequest.ProtoReflect.Descriptor instead.
 func (*QuotesRequest) Descriptor() ([]byte, []int) {
 	return file_api_quotes_proto_rawDescGZIP(), []int{0}
-}
-
-func (x *QuotesRequest) GetSymbol() string {
-	if x != nil {
-		return x.Symbol
-	}
-	return ""
 }
 
 func (x *QuotesRequest) GetTf() TimeframeEnum {
@@ -383,6 +375,7 @@ type QuotesResponse struct {
 	Indicator1    *Prices                  `protobuf:"bytes,3,opt,name=indicator1,proto3" json:"indicator1,omitempty"`
 	Indicator2    *Prices                  `protobuf:"bytes,4,opt,name=indicator2,proto3" json:"indicator2,omitempty"`
 	Deals         []*Deal                  `protobuf:"bytes,5,rep,name=deals,proto3" json:"deals,omitempty"`
+	Symbol        string                   `protobuf:"bytes,6,opt,name=symbol,proto3" json:"symbol,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -450,6 +443,13 @@ func (x *QuotesResponse) GetDeals() []*Deal {
 		return x.Deals
 	}
 	return nil
+}
+
+func (x *QuotesResponse) GetSymbol() string {
+	if x != nil {
+		return x.Symbol
+	}
+	return ""
 }
 
 type Prices struct {
@@ -620,9 +620,8 @@ var File_api_quotes_proto protoreflect.FileDescriptor
 
 const file_api_quotes_proto_rawDesc = "" +
 	"\n" +
-	"\x10api/quotes.proto\x12\x03api\x1a\x1fgoogle/protobuf/timestamp.proto\"\xcf\x01\n" +
-	"\rQuotesRequest\x12\x16\n" +
-	"\x06symbol\x18\x01 \x01(\tR\x06symbol\x12\"\n" +
+	"\x10api/quotes.proto\x12\x03api\x1a\x1fgoogle/protobuf/timestamp.proto\"\xb7\x01\n" +
+	"\rQuotesRequest\x12\"\n" +
 	"\x02tf\x18\x02 \x01(\x0e2\x12.api.TimeframeEnumR\x02tf\x12\x1e\n" +
 	"\n" +
 	"takeprofit\x18\x03 \x01(\x01R\n" +
@@ -633,7 +632,7 @@ const file_api_quotes_proto_rawDesc = "" +
 	"\tIndicator\x12*\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x16.api.IndicatorTypeEnumR\x04type\x12\x12\n" +
 	"\x04coef\x18\x02 \x01(\x01R\x04coef\x12+\n" +
-	"\x06source\x18\x03 \x01(\x0e2\x13.api.SourceTypeEnumR\x06source\"\xe3\x01\n" +
+	"\x06source\x18\x03 \x01(\x0e2\x13.api.SourceTypeEnumR\x06source\"\xfb\x01\n" +
 	"\x0eQuotesResponse\x12.\n" +
 	"\x04time\x18\x01 \x03(\v2\x1a.google.protobuf.TimestampR\x04time\x12&\n" +
 	"\acandles\x18\x02 \x01(\v2\f.api.CandlesR\acandles\x12+\n" +
@@ -643,7 +642,8 @@ const file_api_quotes_proto_rawDesc = "" +
 	"\n" +
 	"indicator2\x18\x04 \x01(\v2\v.api.PricesR\n" +
 	"indicator2\x12\x1f\n" +
-	"\x05deals\x18\x05 \x03(\v2\t.api.DealR\x05deals\"\x1e\n" +
+	"\x05deals\x18\x05 \x03(\v2\t.api.DealR\x05deals\x12\x16\n" +
+	"\x06symbol\x18\x06 \x01(\tR\x06symbol\"\x1e\n" +
 	"\x06Prices\x12\x14\n" +
 	"\x05price\x18\x01 \x03(\x01R\x05price\"u\n" +
 	"\aCandles\x12\x19\n" +

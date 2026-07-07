@@ -146,3 +146,4 @@ config.yaml
 *.env
 /src/config.yaml
 /src/logs/
+/src/main

@@ -4,7 +4,6 @@ import { QuotesRequest, QuotesResponse, TimeframeEnum, IndicatorTypeEnum, Source
 
 // Get DOM Elements
 const form = document.getElementById('quotes-form') as HTMLFormElement;
-const symbolInput = document.getElementById('input-symbol') as HTMLInputElement;
 const timeframeSelect = document.getElementById('select-timeframe') as HTMLSelectElement;
 const takeprofitInput = document.getElementById('input-takeprofit') as HTMLInputElement;
 const stoplossInput = document.getElementById('input-stoploss') as HTMLInputElement;
@@ -78,7 +77,6 @@ function showError(msg: string | null) {
 
 // Retrieve form parameters and build QuotesRequest object
 function getRequestPayload(): QuotesRequest | null {
-  const symbol = symbolInput.value.trim().toUpperCase();
   const tf = parseInt(timeframeSelect.value) as TimeframeEnum;
   const takeprofit = parseFloat(takeprofitInput.value);
   const stoploss = parseFloat(stoplossInput.value);
@@ -91,7 +89,7 @@ function getRequestPayload(): QuotesRequest | null {
   const ind2Coef = parseFloat(ind2CoefInput.value);
   const ind2Source = parseInt(ind2SourceSelect.value) as SourceTypeEnum;
 
-  if (!symbol || isNaN(tf) || isNaN(takeprofit) || isNaN(stoploss)) {
+  if (isNaN(tf) || isNaN(takeprofit) || isNaN(stoploss)) {
     return null;
   }
   if (isNaN(ind1Type) || isNaN(ind1Coef) || isNaN(ind1Source)) {
@@ -102,7 +100,6 @@ function getRequestPayload(): QuotesRequest | null {
   }
 
   return {
-    symbol,
     tf,
     takeprofit,
     stoploss,
@@ -163,7 +160,7 @@ const triggerFetch = debounce(fetchQuotes, 250);
 
 // Update Top HUD values
 function updateHUD(hoverData: { open?: number, high?: number, low?: number, close?: number, ind1?: number, ind2?: number } | null) {
-  const symbol = symbolInput.value.trim().toUpperCase();
+  const symbol = chartData?.symbol || '--';
   hudSymbol.innerText = symbol;
 
   if (hoverData) {
@@ -278,13 +275,15 @@ function drawChart() {
   // Prepare candle data
   const candleData = [];
   for (let i = 0; i < n; i++) {
-    candleData.push({
-      time: (times[i].getTime() / 1000) as UTCTimestamp,
-      open: oPrices[i],
-      high: hPrices[i],
-      low: lPrices[i],
-      close: cPrices[i]
-    });
+    if (times[i]) {
+      candleData.push({
+        time: (times[i].getTime() / 1000) as UTCTimestamp,
+        open: oPrices[i],
+        high: hPrices[i],
+        low: lPrices[i],
+        close: cPrices[i]
+      });
+    }
   }
   candlestickSeries.setData(candleData);
 
@@ -300,10 +299,12 @@ function drawChart() {
     for (let i = 0; i < n; i++) {
       const val = ind1.price[i];
       if (val !== undefined && !isNaN(val) && val > 0 && Math.abs(val) <= 90000000000000) {
-        ind1Data.push({
-          time: (times[i].getTime() / 1000) as UTCTimestamp,
-          value: val
-        });
+        if (times[i]) {
+          ind1Data.push({
+            time: (times[i].getTime() / 1000) as UTCTimestamp,
+            value: val
+          });
+        }
       }
     }
   }
@@ -321,10 +322,12 @@ function drawChart() {
     for (let i = 0; i < n; i++) {
       const val = ind2.price[i];
       if (val !== undefined && !isNaN(val) && val > 0 && Math.abs(val) <= 90000000000000) {
-        ind2Data.push({
-          time: (times[i].getTime() / 1000) as UTCTimestamp,
-          value: val
-        });
+        if (times[i]) {
+          ind2Data.push({
+            time: (times[i].getTime() / 1000) as UTCTimestamp,
+            value: val
+          });
+        }
       }
     }
   }
@@ -334,26 +337,31 @@ function drawChart() {
   const markers: any[] = [];
   if (deals && deals.length > 0) {
     deals.forEach((deal, idx) => {
-      const openTime = (times[deal.open].getTime() / 1000) as UTCTimestamp;
-      const closeTime = (times[deal.close].getTime() / 1000) as UTCTimestamp;
+      const openTimePoint = times[deal.open];
+      if (openTimePoint) {
+        const openTime = (openTimePoint.getTime() / 1000) as UTCTimestamp;
+        markers.push({
+          time: openTime,
+          position: 'belowBar',
+          color: '#00f097',
+          shape: 'arrowUp',
+          text: 'BUY',
+          id: `buy-${idx}`
+        });
+      }
 
-      markers.push({
-        time: openTime,
-        position: 'belowBar',
-        color: '#00f097',
-        shape: 'arrowUp',
-        text: 'BUY',
-        id: `buy-${idx}`
-      });
-
-      markers.push({
-        time: closeTime,
-        position: 'aboveBar',
-        color: '#ff3860',
-        shape: 'arrowDown',
-        text: 'SELL',
-        id: `sell-${idx}`
-      });
+      const closeTimePoint = times[deal.close];
+      if (closeTimePoint) {
+        const closeTime = (closeTimePoint.getTime() / 1000) as UTCTimestamp;
+        markers.push({
+          time: closeTime,
+          position: 'aboveBar',
+          color: '#ff3860',
+          shape: 'arrowDown',
+          text: 'SELL',
+          id: `sell-${idx}`
+        });
+      }
     });
   }
 

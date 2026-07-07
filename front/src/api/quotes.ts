@@ -101,7 +101,6 @@ export namespace SourceTypeEnum {
 }
 
 export interface QuotesRequest {
-  symbol: string;
   tf: TimeframeEnum;
   takeprofit: number;
   stoploss: number;
@@ -121,6 +120,7 @@ export interface QuotesResponse {
   indicator1?: Prices | undefined;
   indicator2?: Prices | undefined;
   deals: Deal[];
+  symbol: string;
 }
 
 export interface Prices {
@@ -142,14 +142,11 @@ export interface Deal {
 }
 
 function createBaseQuotesRequest(): QuotesRequest {
-  return { symbol: "", tf: 0, takeprofit: 0, stoploss: 0, ind1: undefined, ind2: undefined };
+  return { tf: 0, takeprofit: 0, stoploss: 0, ind1: undefined, ind2: undefined };
 }
 
 export const QuotesRequest: MessageFns<QuotesRequest> = {
   encode(message: QuotesRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.symbol !== "") {
-      writer.uint32(10).string(message.symbol);
-    }
     if (message.tf !== 0) {
       writer.uint32(16).int32(message.tf);
     }
@@ -175,14 +172,6 @@ export const QuotesRequest: MessageFns<QuotesRequest> = {
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.symbol = reader.string();
-          continue;
-        }
         case 2: {
           if (tag !== 16) {
             break;
@@ -237,7 +226,6 @@ export const QuotesRequest: MessageFns<QuotesRequest> = {
   },
   fromPartial(object: DeepPartial<QuotesRequest>): QuotesRequest {
     const message = createBaseQuotesRequest();
-    message.symbol = object.symbol ?? "";
     message.tf = object.tf ?? 0;
     message.takeprofit = object.takeprofit ?? 0;
     message.stoploss = object.stoploss ?? 0;
@@ -318,7 +306,7 @@ export const Indicator: MessageFns<Indicator> = {
 };
 
 function createBaseQuotesResponse(): QuotesResponse {
-  return { time: [], candles: undefined, indicator1: undefined, indicator2: undefined, deals: [] };
+  return { time: [], candles: undefined, indicator1: undefined, indicator2: undefined, deals: [], symbol: "" };
 }
 
 export const QuotesResponse: MessageFns<QuotesResponse> = {
@@ -337,6 +325,9 @@ export const QuotesResponse: MessageFns<QuotesResponse> = {
     }
     for (const v of message.deals) {
       Deal.encode(v!, writer.uint32(42).fork()).join();
+    }
+    if (message.symbol !== "") {
+      writer.uint32(50).string(message.symbol);
     }
     return writer;
   },
@@ -388,6 +379,14 @@ export const QuotesResponse: MessageFns<QuotesResponse> = {
           message.deals.push(Deal.decode(reader, reader.uint32()));
           continue;
         }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.symbol = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -413,6 +412,7 @@ export const QuotesResponse: MessageFns<QuotesResponse> = {
       ? Prices.fromPartial(object.indicator2)
       : undefined;
     message.deals = object.deals?.map((e) => Deal.fromPartial(e)) || [];
+    message.symbol = object.symbol ?? "";
     return message;
   },
 };

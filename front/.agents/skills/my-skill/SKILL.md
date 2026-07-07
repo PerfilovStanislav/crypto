@@ -1,6 +1,6 @@
 ---
 name: my-skill
-description: Frontend Skills & Guidelines for ai-creator-front. Use when you need to do front task.
+description: Frontend Skills & Guidelines for crypto project. Use when you need to do front task.
 ---
 
 This document describes the core skills, rules, and constraints for the frontend development of this project. 
