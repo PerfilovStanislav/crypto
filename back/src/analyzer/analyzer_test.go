@@ -126,6 +126,14 @@ func TestAnalyzer_testTaskDirect_metrics(t *testing.T) {
 		if math.Abs(res.ProfitToCandles-expectedProfitToCandles) > 1e-9 {
 			t.Errorf("expected ProfitToCandles %f, got %f", expectedProfitToCandles, res.ProfitToCandles)
 		}
+
+		// Wins and Losses
+		if res.Wins != 1 {
+			t.Errorf("expected Wins 1, got %d", res.Wins)
+		}
+		if res.Losses != 1 {
+			t.Errorf("expected Losses 1, got %d", res.Losses)
+		}
 	default:
 		t.Fatal("expected result on channel, but got none")
 	}

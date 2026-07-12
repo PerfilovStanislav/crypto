@@ -9,6 +9,8 @@ import (
 	"source"
 	"sync"
 	"sync/atomic"
+
+	"github.com/fatih/color"
 )
 
 type TpSlParam struct {
@@ -53,6 +55,8 @@ type TaskResult struct {
 	MaxDrawdown     float64
 	ProfitToDd      float64
 	ProfitToCandles float64
+	Wins            int
+	Losses          int
 }
 
 var (
@@ -95,6 +99,10 @@ func (a *Analyzer) Run() {
 	resultDoneSignal := a.resultChannelHandler()
 
 	fmt.Printf("Jobs:%d\n", len(IndicatorsCompares)*len(TpSlCloses))
+	fmt.Println(
+		clr("     Profit pr", color.FgHiGreen),
+		clr("  DrawDown dd", color.FgHiRed),
+	)
 
 	type compareJob struct {
 		ic      IndicatorsCompare
@@ -163,6 +171,8 @@ func (a *Analyzer) testTaskDirect(ic IndicatorsCompare, signals []int, tpSlParam
 		peak         = 1.0
 		maxDrawdown  = 0.0
 		totalCandles = 0
+		wins         = 0
+		losses       = 0
 	)
 
 	for i := 0; i < len(signals); i++ {
@@ -173,6 +183,12 @@ func (a *Analyzer) testTaskDirect(ic IndicatorsCompare, signals []int, tpSlParam
 		tradeCoef := coefs[openingSignalIndex+1]
 		result *= tradeCoef // открытие происходит на следующей свече
 		closingIndex = indexes[openingSignalIndex+1]
+
+		if tradeCoef > 1.0 {
+			wins++
+		} else if tradeCoef < 1.0 {
+			losses++
+		}
 
 		if result > peak {
 			peak = result
@@ -213,6 +229,8 @@ func (a *Analyzer) testTaskDirect(ic IndicatorsCompare, signals []int, tpSlParam
 					MaxDrawdown:     maxDrawdownPct,
 					ProfitToDd:      profitToDd,
 					ProfitToCandles: profitToCandles,
+					Wins:            wins,
+					Losses:          losses,
 				}
 			}
 		}
