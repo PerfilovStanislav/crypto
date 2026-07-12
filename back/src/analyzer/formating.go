@@ -7,8 +7,11 @@ import (
 )
 
 func (r TaskResult) String() string {
-	return spf("%s %s",
+	return spf("pr:%s dd:%s [pr/dd:%s pr/cnd:%s] %s",
 		clr(spf("+%6.2f%%", (r.Coef-1)*100), color.FgHiGreen),
+		clr(spf("%5.2f%%", r.MaxDrawdown), color.FgHiRed),
+		clr(spf("%5.2f", r.ProfitToDd), color.FgHiCyan),
+		clr(spf("%6.4f", r.ProfitToCandles), color.FgHiYellow),
 		r.Task,
 	)
 }
@@ -21,7 +24,7 @@ func (t Task) String() string {
 }
 
 func (c IndicatorsCompare) String() string {
-	return spf("[%s] [%s]", c.Indicator1Params, c.Indicator2Params)
+	return spf("ind1:[%s] ind2:[%s]", c.Indicator1Params, c.Indicator2Params)
 }
 
 func (p IndicatorParams) String() string {
@@ -34,8 +37,8 @@ func (p IndicatorParams) String() string {
 
 func (p TpSlParam) String() string {
 	return spf("%s %s",
-		clr(spf("Tp:%6.4f", p.Tp), color.FgHiGreen),
-		clr(spf("Sl:%6.4f", p.Sl), color.FgHiRed),
+		clr(spf("tp:%6.4f", p.Tp), color.FgHiGreen),
+		clr(spf("sl:%6.4f", p.Sl), color.FgHiRed),
 	)
 }
 

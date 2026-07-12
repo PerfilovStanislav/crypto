@@ -48,8 +48,11 @@ type Task struct {
 }
 
 type TaskResult struct {
-	Task Task
-	Coef float64
+	Task            Task
+	Coef            float64
+	MaxDrawdown     float64
+	ProfitToDd      float64
+	ProfitToCandles float64
 }
 
 var (
@@ -157,6 +160,9 @@ func (a *Analyzer) testTaskDirect(ic IndicatorsCompare, signals []int, tpSlParam
 	var (
 		result       = 1.0
 		closingIndex = -1
+		peak         = 1.0
+		maxDrawdown  = 0.0
+		totalCandles = 0
 	)
 
 	for i := 0; i < len(signals); i++ {
@@ -164,20 +170,49 @@ func (a *Analyzer) testTaskDirect(ic IndicatorsCompare, signals []int, tpSlParam
 		if openingSignalIndex < closingIndex {
 			continue
 		}
-		result *= coefs[openingSignalIndex+1] // открытие происходит на следующей свече
+		tradeCoef := coefs[openingSignalIndex+1]
+		result *= tradeCoef // открытие происходит на следующей свече
 		closingIndex = indexes[openingSignalIndex+1]
+
+		if result > peak {
+			peak = result
+		}
+		dd := (peak - result) / peak
+		if dd > maxDrawdown {
+			maxDrawdown = dd
+		}
+
+		actualCloseIndex := closingIndex
+		if actualCloseIndex == len(coefs) {
+			actualCloseIndex = len(coefs) - 1
+		}
+		totalCandles += actualCloseIndex - openingSignalIndex
 	}
 
 	if result > 1.0 {
 		currentMax := math.Float64frombits(atomic.LoadUint64(&a.maxCoefBits))
 		if result > currentMax {
 			if a.updateMaxCoef(result) {
+				profitPct := (result - 1) * 100
+				maxDrawdownPct := maxDrawdown * 100
+				var profitToDd float64
+				if maxDrawdown > 0 {
+					profitToDd = (result - 1) / maxDrawdown
+				}
+				var profitToCandles float64
+				if totalCandles > 0 {
+					profitToCandles = profitPct / float64(totalCandles)
+				}
+
 				a.Results <- TaskResult{
 					Task: Task{
 						IndicatorsCompare: ic,
 						TpSlParam:         tpSlParam,
 					},
-					Coef: result,
+					Coef:            result,
+					MaxDrawdown:     maxDrawdownPct,
+					ProfitToDd:      profitToDd,
+					ProfitToCandles: profitToCandles,
 				}
 			}
 		}
