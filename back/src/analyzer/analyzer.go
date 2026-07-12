@@ -11,6 +11,11 @@ import (
 	"sync/atomic"
 )
 
+type TpSlParam struct {
+	Tp float64
+	Sl float64
+}
+
 type TpSlClose struct {
 	Indexes []int
 	Coefs   []float64
