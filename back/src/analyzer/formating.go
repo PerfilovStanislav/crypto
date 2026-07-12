@@ -34,8 +34,8 @@ func (p IndicatorParams) String() string {
 
 func (p TpSlParam) String() string {
 	return spf("%s %s",
-		clr(spf("Tp:%4.1f", p.Tp), color.FgHiGreen),
-		clr(spf("Sl:%4.1f", p.Sl), color.FgHiRed),
+		clr(spf("Tp:%6.4f", p.Tp), color.FgHiGreen),
+		clr(spf("Sl:%6.4f", p.Sl), color.FgHiRed),
 	)
 }
 

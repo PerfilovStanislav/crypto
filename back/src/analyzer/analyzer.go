@@ -91,7 +91,7 @@ func (a *Analyzer) Run() {
 
 	resultDoneSignal := a.resultChannelHandler()
 
-	fmt.Printf("IndicatorsCompares len:%d\n", len(IndicatorsCompares))
+	fmt.Printf("Jobs:%d\n", len(IndicatorsCompares)*len(TpSlCloses))
 
 	type compareJob struct {
 		ic      IndicatorsCompare
