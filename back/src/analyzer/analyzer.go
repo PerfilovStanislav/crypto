@@ -26,11 +26,11 @@ type TpSlClose struct {
 type Coef float64
 
 type Analyzer struct {
-	Cfg         config.AnalyzerConfig
-	Quotes      source.Quotes
-	ln          int
-	Results     chan TaskResult
-	maxCoefBits uint64
+	Cfg               config.AnalyzerConfig
+	Quotes            source.Quotes
+	ln                int
+	Results           chan TaskResult
+	maxProfitToDdBits uint64
 }
 
 type IndicatorParams struct {
@@ -75,15 +75,15 @@ func New(cfg config.AnalyzerConfig, quotes source.Quotes) *Analyzer {
 	}
 }
 
-func (a *Analyzer) updateMaxCoef(val float64) bool {
+func (a *Analyzer) updateMaxProfitToDd(val float64) bool {
 	for {
-		currentBits := atomic.LoadUint64(&a.maxCoefBits)
+		currentBits := atomic.LoadUint64(&a.maxProfitToDdBits)
 		currentVal := math.Float64frombits(currentBits)
 		if val <= currentVal {
 			return false
 		}
 		newBits := math.Float64bits(val)
-		if atomic.CompareAndSwapUint64(&a.maxCoefBits, currentBits, newBits) {
+		if atomic.CompareAndSwapUint64(&a.maxProfitToDdBits, currentBits, newBits) {
 			return true
 		}
 	}
@@ -166,13 +166,10 @@ func (a *Analyzer) testTaskDirect(ic IndicatorsCompare, signals []int, tpSlParam
 	// здесь берём один уровень. Если надо будет сравнивать 3 индикатора, то придётся позаморачиваться
 
 	var (
-		result       = 1.0
+		finalCoef    = 1.0
 		closingIndex = -1
-		peak         = 1.0
+		maxCoef      = 1.0
 		maxDrawdown  = 0.0
-		totalCandles = 0
-		wins         = 0
-		losses       = 0
 	)
 
 	for i := 0; i < len(signals); i++ {
@@ -180,57 +177,84 @@ func (a *Analyzer) testTaskDirect(ic IndicatorsCompare, signals []int, tpSlParam
 		if openingSignalIndex < closingIndex {
 			continue
 		}
-		tradeCoef := coefs[openingSignalIndex+1]
-		result *= tradeCoef // открытие происходит на следующей свече
-		closingIndex = indexes[openingSignalIndex+1]
+		nextIdx := openingSignalIndex + 1
+		finalCoef *= coefs[nextIdx]
+		closingIndex = indexes[nextIdx]
 
-		if tradeCoef > 1.0 {
-			wins++
-		} else if tradeCoef < 1.0 {
-			losses++
+		if finalCoef > maxCoef {
+			maxCoef = finalCoef
+		} else {
+			drawDown := (maxCoef - finalCoef) / maxCoef
+			if drawDown > maxDrawdown {
+				maxDrawdown = drawDown
+			}
 		}
-
-		if result > peak {
-			peak = result
-		}
-		dd := (peak - result) / peak
-		if dd > maxDrawdown {
-			maxDrawdown = dd
-		}
-
-		actualCloseIndex := closingIndex
-		if actualCloseIndex == len(coefs) {
-			actualCloseIndex = len(coefs) - 1
-		}
-		totalCandles += actualCloseIndex - openingSignalIndex
 	}
 
-	if result > 1.0 {
-		currentMax := math.Float64frombits(atomic.LoadUint64(&a.maxCoefBits))
-		if result > currentMax {
-			if a.updateMaxCoef(result) {
-				profitPct := (result - 1) * 100
-				maxDrawdownPct := maxDrawdown * 100
-				var profitToDd float64
-				if maxDrawdown > 0 {
-					profitToDd = (result - 1) / maxDrawdown
-				}
-				var profitToCandles float64
-				if totalCandles > 0 {
-					profitToCandles = profitPct / float64(totalCandles)
-				}
+	if finalCoef > 2.0 {
+		var profitToDd float64
+		if maxDrawdown > 0 {
+			profitToDd = (finalCoef - 1.0) / maxDrawdown
+		} else {
+			profitToDd = (finalCoef - 1.0) / 1e-9
+		}
 
-				a.Results <- TaskResult{
-					Task: Task{
-						IndicatorsCompare: ic,
-						TpSlParam:         tpSlParam,
-					},
-					Coef:            result,
-					MaxDrawdown:     maxDrawdownPct,
-					ProfitToDd:      profitToDd,
-					ProfitToCandles: profitToCandles,
-					Wins:            wins,
-					Losses:          losses,
+		if profitToDd > 3.0 {
+			currentMax := math.Float64frombits(atomic.LoadUint64(&a.maxProfitToDdBits))
+			if profitToDd > currentMax {
+				if a.updateMaxProfitToDd(profitToDd) {
+					var (
+						wins         = 0
+						losses       = 0
+						totalCandles = 0
+						cIndex       = -1
+					)
+					for i := 0; i < len(signals); i++ {
+						openingSignalIndex := signals[i]
+						if openingSignalIndex < cIndex {
+							continue
+						}
+						nextIdx := openingSignalIndex + 1
+						tradeCoef := coefs[nextIdx]
+						cIndex = indexes[nextIdx]
+
+						if tradeCoef > 1.0 {
+							wins++
+						} else if tradeCoef < 1.0 {
+							losses++
+						}
+
+						actualCloseIndex := cIndex
+						if actualCloseIndex == len(coefs) {
+							actualCloseIndex = len(coefs) - 1
+						}
+						totalCandles += actualCloseIndex - openingSignalIndex
+					}
+
+					profitPct := (finalCoef - 1) * 100
+					maxDrawdownPct := maxDrawdown * 100
+					var profitToCandles float64
+					if totalCandles > 0 {
+						profitToCandles = profitPct / float64(totalCandles)
+					}
+
+					reportedProfitToDd := profitToDd
+					if maxDrawdown == 0 {
+						reportedProfitToDd = math.Inf(1)
+					}
+
+					a.Results <- TaskResult{
+						Task: Task{
+							IndicatorsCompare: ic,
+							TpSlParam:         tpSlParam,
+						},
+						Coef:            finalCoef,
+						MaxDrawdown:     maxDrawdownPct,
+						ProfitToDd:      reportedProfitToDd,
+						ProfitToCandles: profitToCandles,
+						Wins:            wins,
+						Losses:          losses,
+					}
 				}
 			}
 		}
