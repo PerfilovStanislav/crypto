@@ -167,10 +167,11 @@ func (a *Analyzer) testTaskDirect(ic IndicatorsCompare, signals []int, tpSlParam
 	// здесь берём один уровень. Если надо будет сравнивать 3 индикатора, то придётся позаморачиваться
 
 	var (
-		finalCoef    = 1.0
-		closingIndex = -1
-		maxCoef      = 1.0
-		maxDrawdown  = 0.0
+		finalCoef         = 1.0
+		weightedFinalCoef = 1.0
+		closingIndex      = -1
+		maxCoef           = 1.0
+		maxDrawdown       = 0.0
 	)
 
 	for i := 0; i < len(signals); i++ {
@@ -180,9 +181,14 @@ func (a *Analyzer) testTaskDirect(ic IndicatorsCompare, signals []int, tpSlParam
 		}
 		nextIdx := openingSignalIndex + 1
 
-		finalCoef *= coefs[nextIdx]
+		tradeCoef := coefs[nextIdx]
+		finalCoef *= tradeCoef
 		closingIndex = indexes[nextIdx]
 		drawDown := dds[nextIdx]
+
+		weight := 1.0
+		weight = math.Exp(float64(openingSignalIndex) / float64(a.ln))
+		weightedFinalCoef *= math.Pow(tradeCoef, weight)
 
 		if finalCoef > maxCoef {
 			maxCoef = finalCoef
@@ -193,13 +199,13 @@ func (a *Analyzer) testTaskDirect(ic IndicatorsCompare, signals []int, tpSlParam
 		}
 	}
 
-	if finalCoef > 2.0 {
-		profitToDd := (finalCoef - 1.0) / maxDrawdown
+	if weightedFinalCoef > 2.0 {
+		weightedProfitToDd := (weightedFinalCoef - 1.0) / maxDrawdown
 
-		if profitToDd > 3.0 {
+		if weightedProfitToDd > 3.0 {
 			currentMax := math.Float64frombits(atomic.LoadUint64(&a.maxProfitToDdBits))
-			if profitToDd > currentMax {
-				if a.updateMaxProfitToDd(profitToDd) {
+			if weightedProfitToDd > currentMax {
+				if a.updateMaxProfitToDd(weightedProfitToDd) {
 					var (
 						wins         = 0
 						losses       = 0
@@ -235,9 +241,9 @@ func (a *Analyzer) testTaskDirect(ic IndicatorsCompare, signals []int, tpSlParam
 						profitToCandles = profitPct / float64(totalCandles)
 					}
 
-					reportedProfitToDd := profitToDd
+					realProfitToDd := (finalCoef - 1.0) / maxDrawdown
 					if maxDrawdown == 0 {
-						reportedProfitToDd = math.Inf(1)
+						realProfitToDd = math.Inf(1)
 					}
 
 					a.Results <- TaskResult{
@@ -247,7 +253,7 @@ func (a *Analyzer) testTaskDirect(ic IndicatorsCompare, signals []int, tpSlParam
 						},
 						Coef:            finalCoef,
 						MaxDrawdown:     maxDrawdownPct,
-						ProfitToDd:      reportedProfitToDd,
+						ProfitToDd:      realProfitToDd,
 						ProfitToCandles: profitToCandles,
 						Wins:            wins,
 						Losses:          losses,

@@ -60,7 +60,8 @@ func syncMarketData(ctx context.Context, ch *clickhouse.Client, log *logger.Logg
 	targetStartMs := startTime.UnixMilli()
 	targetEndMs := time.Now().UnixMilli()
 
-	if targetEndMs <= targetStartMs+14400000 { // 4 hours in ms
+	tfDur := timeframeDuration(cfg.Timeframe)
+	if targetEndMs <= targetStartMs+tfDur.Milliseconds() {
 		log.Info("market data is already up-to-date")
 		return nil
 	}
@@ -99,8 +100,6 @@ func syncMarketData(ctx context.Context, ch *clickhouse.Client, log *logger.Logg
 	}
 
 	log.Info("fetched all candles from bybit", "raw_count", len(allCandles))
-
-	tfDur := timeframeDuration(cfg.Timeframe)
 
 	// Parse and filter out candles already in ClickHouse
 	var candlesToInsert []Candle
