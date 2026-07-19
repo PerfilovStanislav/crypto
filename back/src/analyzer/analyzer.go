@@ -19,8 +19,9 @@ type TpSlParam struct {
 }
 
 type TpSlClose struct {
-	Indexes []int
-	Coefs   []float64
+	Indexes   []int
+	Coefs     []float64
+	DrawDowns []float64
 }
 
 type Coef float64
@@ -131,7 +132,7 @@ func (a *Analyzer) Run() {
 				}
 				job := jobs[idx]
 				for tpSlParam, tpSlClose := range TpSlCloses {
-					a.testTaskDirect(job.ic, job.signals, tpSlParam, tpSlClose.Coefs, tpSlClose.Indexes)
+					a.testTaskDirect(job.ic, job.signals, tpSlParam, tpSlClose.Indexes, tpSlClose.Coefs, tpSlClose.DrawDowns)
 				}
 
 				// Increment completed count and print progress bar at 10% steps
@@ -162,7 +163,7 @@ func (a *Analyzer) Run() {
 	<-resultDoneSignal
 }
 
-func (a *Analyzer) testTaskDirect(ic IndicatorsCompare, signals []int, tpSlParam TpSlParam, coefs []float64, indexes []int) {
+func (a *Analyzer) testTaskDirect(ic IndicatorsCompare, signals []int, tpSlParam TpSlParam, indexes []int, coefs, dds []float64) {
 	// здесь берём один уровень. Если надо будет сравнивать 3 индикатора, то придётся позаморачиваться
 
 	var (
@@ -178,26 +179,22 @@ func (a *Analyzer) testTaskDirect(ic IndicatorsCompare, signals []int, tpSlParam
 			continue
 		}
 		nextIdx := openingSignalIndex + 1
+
 		finalCoef *= coefs[nextIdx]
 		closingIndex = indexes[nextIdx]
+		drawDown := dds[nextIdx]
 
 		if finalCoef > maxCoef {
 			maxCoef = finalCoef
-		} else {
-			drawDown := (maxCoef - finalCoef) / maxCoef
-			if drawDown > maxDrawdown {
-				maxDrawdown = drawDown
-			}
+		}
+
+		if drawDown > maxDrawdown {
+			maxDrawdown = drawDown
 		}
 	}
 
 	if finalCoef > 2.0 {
-		var profitToDd float64
-		if maxDrawdown > 0 {
-			profitToDd = (finalCoef - 1.0) / maxDrawdown
-		} else {
-			profitToDd = (finalCoef - 1.0) / 1e-9
-		}
+		profitToDd := (finalCoef - 1.0) / maxDrawdown
 
 		if profitToDd > 3.0 {
 			currentMax := math.Float64frombits(atomic.LoadUint64(&a.maxProfitToDdBits))
@@ -430,29 +427,38 @@ func (a *Analyzer) hasEnoughCloses(param TpSlParam) bool {
 func CalculateClosings(quotes source.Quotes, p TpSlParam, comission float64) TpSlClose {
 	ln := len(quotes.Lows)
 	c := TpSlClose{
-		Indexes: make([]int, ln),
-		Coefs:   make([]float64, ln),
+		Indexes:   make([]int, ln),
+		Coefs:     make([]float64, ln),
+		DrawDowns: make([]float64, ln),
 	}
-	commsision := (1 - comission) * (1 - comission)
+	cms := (1 - comission) * (1 - comission)
 
 level2:
 	for i, openedPrice := range quotes.Opens {
+		lowestPrice := quotes.Lows[i]
 		for k := i; k < ln; k++ {
-			if quotes.Highs[k] >= openedPrice+p.Tp {
-				coef := commsision * (openedPrice + p.Tp) / openedPrice
+			if lowestPrice > quotes.Lows[k] {
+				lowestPrice = quotes.Lows[k]
+			}
+
+			if quotes.Lows[k] <= openedPrice-p.Sl {
+				coef := cms * (openedPrice - p.Sl) / openedPrice
 				c.Indexes[i] = k
 				c.Coefs[i] = coef
+				c.DrawDowns[i] = p.Sl / openedPrice
 				continue level2
-			} else if quotes.Lows[k] <= openedPrice-p.Sl {
-				coef := commsision * (openedPrice - p.Sl) / openedPrice
+			} else if quotes.Highs[k] >= openedPrice+p.Tp {
+				coef := cms * (openedPrice + p.Tp) / openedPrice
 				c.Indexes[i] = k
 				c.Coefs[i] = coef
+				c.DrawDowns[i] = 1.0 - lowestPrice/openedPrice
 				continue level2
 			}
 		}
 		for k := i; k < ln; k++ {
 			c.Indexes[k] = ln
 			c.Coefs[k] = 1.0
+			c.DrawDowns[k] = 0.0
 		}
 	}
 
