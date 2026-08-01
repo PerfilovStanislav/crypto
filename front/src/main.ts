@@ -441,8 +441,16 @@ function drawChart() {
     });
   });
 
-  // Auto-fit contents in timescale viewport
-  chart.timeScale().fitContent();
+  // Set default visible range to show only the last 150 candles
+  const totalCandles = times.length;
+  if (totalCandles > 150) {
+    chart.timeScale().setVisibleLogicalRange({
+      from: totalCandles - 150,
+      to: totalCandles + 5 // add 5 bars of margin on the right
+    });
+  } else {
+    chart.timeScale().fitContent();
+  }
 }
 
 // Bind Form inputs & Select elements change handlers
