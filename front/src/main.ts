@@ -333,7 +333,7 @@ function drawChart() {
   }
   lineSeries2.setData(ind2Data);
 
-  // Populate simulated Deal markers (Buy/Sell indicators)
+  // Populate simulated Deal markers (Open/Close indicators)
   const markers: any[] = [];
   if (deals && deals.length > 0) {
     deals.forEach((deal, idx) => {
@@ -343,23 +343,41 @@ function drawChart() {
         markers.push({
           time: openTime,
           position: 'belowBar',
-          color: '#00f097',
+          color: '#3b82f6', // blue
           shape: 'arrowUp',
-          text: 'BUY',
-          id: `buy-${idx}`
+          text: 'OPEN',
+          id: `open-${idx}`
         });
       }
 
       const closeTimePoint = times[deal.close];
       if (closeTimePoint) {
         const closeTime = (closeTimePoint.getTime() / 1000) as UTCTimestamp;
+        
+        let closeText = 'TP';
+        let closeColor = '#48c774'; // green
+
+        const candles = chartData?.candles;
+        if (candles && candles.o && candles.o.price && candles.l && candles.l.price) {
+          const openedPrice = candles.o.price[deal.open];
+          const payload = getRequestPayload();
+          if (payload) {
+            const sl = payload.stoploss;
+            const lowAtClose = candles.l.price[deal.close];
+            if (lowAtClose <= openedPrice - sl) {
+              closeText = 'SL';
+              closeColor = '#ff3860'; // red
+            }
+          }
+        }
+
         markers.push({
           time: closeTime,
           position: 'aboveBar',
-          color: '#ff3860',
+          color: closeColor,
           shape: 'arrowDown',
-          text: 'SELL',
-          id: `sell-${idx}`
+          text: closeText,
+          id: `close-${idx}`
         });
       }
     });
