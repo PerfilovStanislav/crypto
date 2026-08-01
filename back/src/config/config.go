@@ -36,15 +36,17 @@ type HttpConfig struct {
 }
 
 type AnalyzerConfig struct {
-	Threads    int                 `yaml:"threads" env:"THREADS"`
-	Pair       string              `yaml:"pair" env:"PAIR"`
-	Timeframe  string              `yaml:"timeframe" env:"TIMEFRAME"`
-	Commission float64             `yaml:"commission" env:"COMMISSION"`
-	MinCloses  int                 `yaml:"minCloses" env:"MIN_CLOSES"`
-	MinSignals int                 `yaml:"minSignals" env:"MIN_SIGNALS"`
-	Takeprofit RangeConfig         `yaml:"takeprofit" env:"TAKEPROFIT"`
-	Stoploss   RangeConfig         `yaml:"stoploss" env:"STOPLOSS"`
-	Indicators [][]IndicatorConfig `yaml:"indicators" env-prefix:"INDICATORS_"`
+	Threads              int                 `yaml:"threads" env:"THREADS"`
+	Pair                 string              `yaml:"pair" env:"PAIR"`
+	Timeframe            string              `yaml:"timeframe" env:"TIMEFRAME"`
+	Commission           float64             `yaml:"commission" env:"COMMISSION"`
+	MinCloses            int                 `yaml:"minCloses" env:"MIN_CLOSES"`
+	MinSignals           int                 `yaml:"minSignals" env:"MIN_SIGNALS"`
+	MinSignalsLastMonths int                 `yaml:"minSignalsLastMonths" env:"MIN_SIGNALS_LAST_MONTHS"`
+	LastMonthsLimit      int                 `yaml:"lastMonthsLimit" env:"LAST_MONTHS_LIMIT"`
+	Takeprofit           RangeConfig         `yaml:"takeprofit" env:"TAKEPROFIT"`
+	Stoploss             RangeConfig         `yaml:"stoploss" env:"STOPLOSS"`
+	Indicators           [][]IndicatorConfig `yaml:"indicators" env-prefix:"INDICATORS_"`
 }
 
 type IndicatorConfig struct {

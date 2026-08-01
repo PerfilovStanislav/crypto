@@ -9,6 +9,7 @@ import (
 	"source"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/fatih/color"
 )
@@ -32,6 +33,7 @@ type Analyzer struct {
 	ln                int
 	Results           chan TaskResult
 	maxProfitToDdBits uint64
+	cutoffIndex       int
 }
 
 type IndicatorParams struct {
@@ -68,11 +70,21 @@ var (
 )
 
 func New(cfg config.AnalyzerConfig, quotes source.Quotes) *Analyzer {
+	cutoffTime := time.Now().AddDate(0, -cfg.LastMonthsLimit, 0)
+	cutoffIndex := len(quotes.Opens)
+	for i, t := range quotes.Timestamps {
+		if !t.Before(cutoffTime) {
+			cutoffIndex = i
+			break
+		}
+	}
+
 	return &Analyzer{
-		Cfg:     cfg,
-		Quotes:  quotes,
-		ln:      len(quotes.Opens),
-		Results: make(chan TaskResult, cfg.Threads),
+		Cfg:         cfg,
+		Quotes:      quotes,
+		ln:          len(quotes.Opens),
+		Results:     make(chan TaskResult, cfg.Threads),
+		cutoffIndex: cutoffIndex,
 	}
 }
 
@@ -473,13 +485,17 @@ level2:
 
 func (a *Analyzer) CompareIndicators(currentPrices, nextPrices []float64) []int {
 	matchCount := 0
+	lastMonthsSignals := 0
 	for i := 0; i < a.ln-1; i++ {
 		if nextPrices[i] > currentPrices[i] {
 			matchCount++
+			if i >= a.cutoffIndex {
+				lastMonthsSignals++
+			}
 		}
 	}
 
-	if matchCount < a.Cfg.MinSignals {
+	if matchCount < a.Cfg.MinSignals || lastMonthsSignals < a.Cfg.MinSignalsLastMonths {
 		return nil
 	}
 
