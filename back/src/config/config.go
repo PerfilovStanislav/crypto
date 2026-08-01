@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"indicator"
 	"source"
 
@@ -64,6 +65,14 @@ func Init() *Config {
 	err := cleanenv.ReadConfig("config.yaml", &config)
 	if err != nil {
 		panic(err)
+	}
+
+	if config.Analyzer.Pair != "" {
+		pairConfigPath := fmt.Sprintf("config_%s.yaml", config.Analyzer.Pair)
+		err = cleanenv.ReadConfig(pairConfigPath, &config)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	return &config

@@ -61,7 +61,7 @@ func syncMarketData(ctx context.Context, ch *clickhouse.Client, log *logger.Logg
 	targetEndMs := time.Now().UnixMilli()
 
 	tfDur := timeframeDuration(cfg.Timeframe)
-	if targetEndMs <= targetStartMs+tfDur.Milliseconds() {
+	if targetEndMs <= targetStartMs+2*tfDur.Milliseconds() {
 		log.Info("market data is already up-to-date")
 		return nil
 	}

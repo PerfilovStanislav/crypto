@@ -1,7 +1,11 @@
 BACK_DIR := ../back
 FRONT_DIR := ../front
 
-.PHONY: go js
+.PHONY: up go js
+
+up:
+	docker ps -qa | xargs -r docker container stop
+	docker compose up
 
 go:
 	protoc --go_out=$(BACK_DIR)/src/server --go_opt=paths=source_relative ./api/*.proto
