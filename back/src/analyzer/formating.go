@@ -2,12 +2,13 @@ package analyzer
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/fatih/color"
 )
 
 func (r TaskResult) String() string {
-	return spf("%s (%s)  %s (%s)  [%s%s  %s%s]  %s",
+	return spf("%s (%s)  %s (%s)  [%s%s  %s%s]  %s  %s",
 		clr(spf("+%7.2f%%", (r.Coef-1)*100), color.FgHiGreen),
 		clr(spf("%3d", r.Wins), color.FgHiGreen),
 
@@ -21,6 +22,25 @@ func (r TaskResult) String() string {
 		clr(spf("%6.4f", r.ProfitToCandles), color.FgHiYellow),
 
 		r.Task,
+		r.Task.Url(),
+	)
+}
+
+func round2(val float64) float64 {
+	return math.Round(val*100) / 100
+}
+
+func (t Task) Url() string {
+	return spf("http://localhost/?tf=%s&tp=%g&sl=%g&i1=%s,%g,%s&i2=%s,%g,%s",
+		t.Timeframe,
+		round2(t.TpSlParam.Tp),
+		round2(t.TpSlParam.Sl),
+		t.IndicatorsCompare.Indicator1Params.Type,
+		round2(float64(t.IndicatorsCompare.Indicator1Params.Coef)),
+		t.IndicatorsCompare.Indicator1Params.Source,
+		t.IndicatorsCompare.Indicator2Params.Type,
+		round2(float64(t.IndicatorsCompare.Indicator2Params.Coef)),
+		t.IndicatorsCompare.Indicator2Params.Source,
 	)
 }
 

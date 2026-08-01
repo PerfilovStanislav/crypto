@@ -50,6 +50,7 @@ type IndicatorsCompare struct {
 type Task struct {
 	IndicatorsCompare IndicatorsCompare
 	TpSlParam         TpSlParam
+	Timeframe         string
 }
 
 type TaskResult struct {
@@ -262,6 +263,7 @@ func (a *Analyzer) testTaskDirect(ic IndicatorsCompare, signals []int, tpSlParam
 						Task: Task{
 							IndicatorsCompare: ic,
 							TpSlParam:         tpSlParam,
+							Timeframe:         a.Cfg.Timeframe,
 						},
 						Coef:            finalCoef,
 						MaxDrawdown:     maxDrawdownPct,

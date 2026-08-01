@@ -426,6 +426,60 @@ function setupResizeHandler() {
 
 // Initialize Application
 function init() {
+  const params = new URLSearchParams(window.location.search);
+  const tfVal = params.get('tf');
+  const tpVal = params.get('tp');
+  const slVal = params.get('sl');
+  const i1Val = params.get('i1');
+  const i2Val = params.get('i2');
+
+  const tfMap: Record<string, string> = {
+    '1m': '1', '5m': '2', '15m': '3', '30m': '4', '1h': '5', '4h': '6', '1d': '7', '1w': '8',
+    '1D': '7', '1W': '8'
+  };
+
+  const typeMap: Record<string, string> = {
+    'sma': '1', 'ema': '2', 'dema': '3', 'tema': '4', 'temazero': '5', 'temaZero': '5'
+  };
+
+  const sourceMap: Record<string, string> = {
+    'l': '1', 'o': '2', 'c': '3', 'h': '4',
+    'lo': '5', 'lc': '6', 'lh': '7', 'oc': '8', 'oh': '9', 'ch': '10',
+    'loc': '11', 'loh': '12', 'lch': '13', 'och': '14',
+    'L': '1', 'O': '2', 'C': '3', 'H': '4',
+    'LO': '5', 'LC': '6', 'LH': '7', 'OC': '8', 'OH': '9', 'CH': '10',
+    'LOC': '11', 'LOH': '12', 'LCH': '13', 'OCH': '14'
+  };
+
+  if (tfVal) {
+    const mapped = tfMap[tfVal] || tfMap[tfVal.toLowerCase()] || tfVal;
+    if (mapped) timeframeSelect.value = mapped;
+  }
+  if (tpVal) takeprofitInput.value = tpVal;
+  if (slVal) stoplossInput.value = slVal;
+
+  if (i1Val) {
+    const parts = i1Val.split(',');
+    if (parts.length === 3) {
+      const typeMapped = typeMap[parts[0]] || typeMap[parts[0].toLowerCase()] || parts[0];
+      const sourceMapped = sourceMap[parts[2]] || sourceMap[parts[2].toLowerCase()] || parts[2];
+      ind1TypeSelect.value = typeMapped;
+      ind1CoefInput.value = parts[1];
+      ind1SourceSelect.value = sourceMapped;
+    }
+  }
+
+  if (i2Val) {
+    const parts = i2Val.split(',');
+    if (parts.length === 3) {
+      const typeMapped = typeMap[parts[0]] || typeMap[parts[0].toLowerCase()] || parts[0];
+      const sourceMapped = sourceMap[parts[2]] || sourceMap[parts[2].toLowerCase()] || parts[2];
+      ind2TypeSelect.value = typeMapped;
+      ind2CoefInput.value = parts[1];
+      ind2SourceSelect.value = sourceMapped;
+    }
+  }
+
   setupFormListeners();
   setupResizeHandler();
 
