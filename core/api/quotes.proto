@@ -65,6 +65,10 @@ message QuotesResponse {
   Prices indicator2 = 4;
   repeated Deal deals = 5;
   string symbol = 6;
+  double profit_pct = 7;
+  double max_drawdown_pct = 8;
+  int32 wins = 9;
+  int32 losses = 10;
 }
 
 message Prices {

@@ -32,6 +32,12 @@ const hudClose = document.getElementById('hud-close') as HTMLSpanElement;
 const hudInd1 = document.getElementById('hud-ind1') as HTMLSpanElement;
 const hudInd2 = document.getElementById('hud-ind2') as HTMLSpanElement;
 
+// Stats HUD fields
+const hudWins = document.getElementById('hud-stats-wins') as HTMLSpanElement;
+const hudLosses = document.getElementById('hud-stats-losses') as HTMLSpanElement;
+const hudProfit = document.getElementById('hud-stats-profit') as HTMLSpanElement;
+const hudDrawdown = document.getElementById('hud-stats-drawdown') as HTMLSpanElement;
+
 // Application State
 let chart: IChartApi | null = null;
 let chartData: QuotesResponse | null = null;
@@ -162,6 +168,33 @@ const triggerFetch = debounce(fetchQuotes, 250);
 function updateHUD(hoverData: { open?: number, high?: number, low?: number, close?: number, ind1?: number, ind2?: number } | null) {
   const symbol = chartData?.symbol || '--';
   hudSymbol.innerText = symbol;
+
+  // Set strategy statistics (deals, profit, drawdown)
+  if (chartData) {
+    hudWins.innerText = (chartData.wins !== undefined) ? chartData.wins.toString() : '--';
+    hudLosses.innerText = (chartData.losses !== undefined) ? chartData.losses.toString() : '--';
+    
+    if (chartData.profitPct !== undefined) {
+      const prof = chartData.profitPct;
+      hudProfit.innerText = (prof >= 0 ? '+' : '') + prof.toFixed(2) + '%';
+      hudProfit.style.color = prof >= 0 ? 'var(--color-bull)' : 'var(--color-bear)';
+    } else {
+      hudProfit.innerText = '--';
+      hudProfit.style.color = 'var(--text-primary)';
+    }
+    
+    if (chartData.maxDrawdownPct !== undefined) {
+      hudDrawdown.innerText = chartData.maxDrawdownPct.toFixed(2) + '%';
+    } else {
+      hudDrawdown.innerText = '--';
+    }
+  } else {
+    hudWins.innerText = '--';
+    hudLosses.innerText = '--';
+    hudProfit.innerText = '--';
+    hudProfit.style.color = 'var(--text-primary)';
+    hudDrawdown.innerText = '--';
+  }
 
   if (hoverData) {
     hudOpen.innerText = formatPrice(hoverData.open);

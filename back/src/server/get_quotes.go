@@ -141,6 +141,9 @@ func (s *Server) getQuotes(w http.ResponseWriter, body []byte) error {
 		result       = 1.0
 		closingIndex = -1
 		deals        = make([]*api.Deal, 0)
+		wins         = 0
+		losses       = 0
+		maxDrawdown  = 0.0
 	)
 
 	for i := 0; i < len(signals); i++ {
@@ -148,13 +151,30 @@ func (s *Server) getQuotes(w http.ResponseWriter, body []byte) error {
 		if openingSignalIndex < closingIndex {
 			continue
 		}
-		result *= TpSlCloses.Coefs[openingSignalIndex+1] // открытие происходит на следующей свече
-		closingIndex = TpSlCloses.Indexes[openingSignalIndex+1]
+		nextIdx := openingSignalIndex + 1
+		tradeCoef := TpSlCloses.Coefs[nextIdx]
+		closingIndex = TpSlCloses.Indexes[nextIdx]
+		drawDown := TpSlCloses.DrawDowns[nextIdx]
+
+		if tradeCoef > 1.0 {
+			wins++
+		} else if tradeCoef < 1.0 {
+			losses++
+		}
+
+		if drawDown > maxDrawdown {
+			maxDrawdown = drawDown
+		}
+
+		result *= tradeCoef
 		deals = append(deals, &api.Deal{
 			Open:  int32(openingSignalIndex + 1),
 			Close: int32(closingIndex),
 		})
 	}
+
+	profitPct := (result - 1.0) * 100
+	maxDrawdownPct := maxDrawdown * 100
 
 	fmt.Println(result)
 
@@ -166,10 +186,14 @@ func (s *Server) getQuotes(w http.ResponseWriter, body []byte) error {
 			C: &api.Prices{Price: s.az.Quotes.Closes},
 			H: &api.Prices{Price: s.az.Quotes.Highs},
 		},
-		Indicator1: &api.Prices{Price: ind1Prices},
-		Indicator2: &api.Prices{Price: ind2Prices},
-		Deals:      deals,
-		Symbol:     s.az.Cfg.Pair,
+		Indicator1:     &api.Prices{Price: ind1Prices},
+		Indicator2:     &api.Prices{Price: ind2Prices},
+		Deals:          deals,
+		Symbol:         s.az.Cfg.Pair,
+		ProfitPct:      profitPct,
+		MaxDrawdownPct: maxDrawdownPct,
+		Wins:           int32(wins),
+		Losses:         int32(losses),
 	})
 }
 
