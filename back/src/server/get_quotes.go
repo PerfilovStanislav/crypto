@@ -2,7 +2,6 @@ package server
 
 import (
 	"analyzer"
-	"fmt"
 	"indicator"
 	"net/http"
 	"server/api"
@@ -175,8 +174,6 @@ func (s *Server) getQuotes(w http.ResponseWriter, body []byte) error {
 
 	profitPct := (result - 1.0) * 100
 	maxDrawdownPct := maxDrawdown * 100
-
-	fmt.Println(result)
 
 	return s.response(w, &api.QuotesResponse{
 		Time: ToProtoTimestamps(s.az.Quotes.Timestamps),
