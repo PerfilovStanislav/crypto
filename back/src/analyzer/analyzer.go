@@ -216,37 +216,41 @@ func (a *Analyzer) testTaskDirect(ic IndicatorsCompare, signals []int, tpSlParam
 		weightedProfitToDd := (weightedFinalCoef - 1.0) / maxDrawdown
 
 		if weightedProfitToDd > 3.0 {
+			var (
+				wins         = 0
+				losses       = 0
+				totalCandles = 0
+				cIndex       = -1
+			)
+			for i := 0; i < len(signals); i++ {
+				openingSignalIndex := signals[i]
+				if openingSignalIndex < cIndex {
+					continue
+				}
+				nextIdx := openingSignalIndex + 1
+				tradeCoef := coefs[nextIdx]
+				cIndex = indexes[nextIdx]
+
+				if tradeCoef > 1.0 {
+					wins++
+				} else if tradeCoef < 1.0 {
+					losses++
+				}
+
+				actualCloseIndex := cIndex
+				if actualCloseIndex == len(coefs) {
+					actualCloseIndex = len(coefs) - 1
+				}
+				totalCandles += actualCloseIndex - openingSignalIndex
+			}
+
+			if wins < a.Cfg.MinTakeProfits {
+				return
+			}
+
 			currentMax := math.Float64frombits(atomic.LoadUint64(&a.maxProfitToDdBits))
 			if weightedProfitToDd > currentMax {
 				if a.updateMaxProfitToDd(weightedProfitToDd) {
-					var (
-						wins         = 0
-						losses       = 0
-						totalCandles = 0
-						cIndex       = -1
-					)
-					for i := 0; i < len(signals); i++ {
-						openingSignalIndex := signals[i]
-						if openingSignalIndex < cIndex {
-							continue
-						}
-						nextIdx := openingSignalIndex + 1
-						tradeCoef := coefs[nextIdx]
-						cIndex = indexes[nextIdx]
-
-						if tradeCoef > 1.0 {
-							wins++
-						} else if tradeCoef < 1.0 {
-							losses++
-						}
-
-						actualCloseIndex := cIndex
-						if actualCloseIndex == len(coefs) {
-							actualCloseIndex = len(coefs) - 1
-						}
-						totalCandles += actualCloseIndex - openingSignalIndex
-					}
-
 					profitPct := (finalCoef - 1) * 100
 					maxDrawdownPct := maxDrawdown * 100
 					var profitToCandles float64

@@ -2,7 +2,6 @@ analyzer:
   threads: 11
   pair: "HYPEUSDT"
   timeframe: "4h"
-  commission: 0.001
   takeprofit:
     start: 2.5
     end: 8.0

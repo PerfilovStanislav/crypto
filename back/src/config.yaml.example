@@ -16,8 +16,10 @@ http:
   active: false
 
 analyzer:
+  commission: 0.001
   pair: "SOLUSDT"
   minCloses: 100
   minSignals: 100
   minSignalsLastMonths: 10
   lastMonthsLimit: 3
+  minTakeProfits: 10

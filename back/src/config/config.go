@@ -44,6 +44,7 @@ type AnalyzerConfig struct {
 	MinSignals           int                 `yaml:"minSignals" env:"MIN_SIGNALS"`
 	MinSignalsLastMonths int                 `yaml:"minSignalsLastMonths" env:"MIN_SIGNALS_LAST_MONTHS"`
 	LastMonthsLimit      int                 `yaml:"lastMonthsLimit" env:"LAST_MONTHS_LIMIT"`
+	MinTakeProfits       int                 `yaml:"minTakeProfits" env:"MIN_TAKE_PROFITS"`
 	Takeprofit           RangeConfig         `yaml:"takeprofit" env:"TAKEPROFIT"`
 	Stoploss             RangeConfig         `yaml:"stoploss" env:"STOPLOSS"`
 	Indicators           [][]IndicatorConfig `yaml:"indicators" env-prefix:"INDICATORS_"`

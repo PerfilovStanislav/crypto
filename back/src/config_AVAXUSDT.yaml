@@ -2,7 +2,6 @@ analyzer:
   threads: 11
   pair: "AVAXUSDT"
   timeframe: "4h"
-  commission: 0.001
   takeprofit:
     start: 1.0
     end: 2.0
