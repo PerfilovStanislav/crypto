@@ -31,10 +31,17 @@ func round2(val float64) float64 {
 }
 
 func (t Task) Url() string {
+	tpVal := t.TpSlParam.Tp
+	slVal := t.TpSlParam.Sl
+	if t.Decimals > 0 {
+		factor := math.Pow10(t.Decimals)
+		tpVal *= factor
+		slVal *= factor
+	}
 	return spf("http://localhost/?tf=%s&tp=%g&sl=%g&i1=%s,%g,%s&i2=%s,%g,%s",
 		t.Timeframe,
-		round2(t.TpSlParam.Tp),
-		round2(t.TpSlParam.Sl),
+		round2(tpVal),
+		round2(slVal),
 		t.IndicatorsCompare.Indicator1Params.Type,
 		round2(float64(t.IndicatorsCompare.Indicator1Params.Coef)),
 		t.IndicatorsCompare.Indicator1Params.Source,
@@ -45,9 +52,19 @@ func (t Task) Url() string {
 }
 
 func (t Task) String() string {
-	return spf("%s  %s",
+	tpVal := t.TpSlParam.Tp
+	slVal := t.TpSlParam.Sl
+	if t.Decimals > 0 {
+		factor := math.Pow10(t.Decimals)
+		tpVal *= factor
+		slVal *= factor
+	}
+	return spf("%s  %s%s  %s%s",
 		t.IndicatorsCompare,
-		t.TpSlParam,
+		clr("tp:", color.FgWhite),
+		clr(spf("%g", round2(tpVal)), color.FgHiGreen),
+		clr("sl:", color.FgWhite),
+		clr(spf("%g", round2(slVal)), color.FgHiRed),
 	)
 }
 

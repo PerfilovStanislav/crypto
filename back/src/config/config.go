@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"indicator"
+	"math"
 	"source"
 
 	"github.com/ilyakaznacheev/cleanenv"
@@ -40,6 +41,7 @@ type AnalyzerConfig struct {
 	Pair                 string              `yaml:"pair" env:"PAIR"`
 	Timeframe            string              `yaml:"timeframe" env:"TIMEFRAME"`
 	Commission           float64             `yaml:"commission" env:"COMMISSION"`
+	Decimals             int                 `yaml:"decimals" env:"DECIMALS"`
 	MinCloses            int                 `yaml:"minCloses" env:"MIN_CLOSES"`
 	MinSignals           int                 `yaml:"minSignals" env:"MIN_SIGNALS"`
 	MinSignalsLastMonths int                 `yaml:"minSignalsLastMonths" env:"MIN_SIGNALS_LAST_MONTHS"`
@@ -76,6 +78,17 @@ func Init() *Config {
 		if err != nil {
 			panic(err)
 		}
+	}
+
+	if config.Analyzer.Decimals > 0 {
+		factor := math.Pow10(config.Analyzer.Decimals)
+		config.Analyzer.Takeprofit.Start /= factor
+		config.Analyzer.Takeprofit.End /= factor
+		config.Analyzer.Takeprofit.Step /= factor
+
+		config.Analyzer.Stoploss.Start /= factor
+		config.Analyzer.Stoploss.End /= factor
+		config.Analyzer.Stoploss.Step /= factor
 	}
 
 	return &config

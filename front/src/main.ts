@@ -84,8 +84,8 @@ function showError(msg: string | null) {
 // Retrieve form parameters and build QuotesRequest object
 function getRequestPayload(): QuotesRequest | null {
   const tf = parseInt(timeframeSelect.value) as TimeframeEnum;
-  const takeprofit = parseFloat(takeprofitInput.value);
-  const stoploss = parseFloat(stoplossInput.value);
+  const takeprofit = parseInt(takeprofitInput.value, 10);
+  const stoploss = parseInt(stoplossInput.value, 10);
   
   const ind1Type = parseInt(ind1TypeSelect.value) as IndicatorTypeEnum;
   const ind1Coef = parseFloat(ind1CoefInput.value);
@@ -122,10 +122,77 @@ function getRequestPayload(): QuotesRequest | null {
   };
 }
 
+function getIndicatorTypeCode(type: IndicatorTypeEnum): string {
+  switch (type) {
+    case IndicatorTypeEnum.INDICATOR_TYPE_SMA: return 'sma';
+    case IndicatorTypeEnum.INDICATOR_TYPE_EMA: return 'ema';
+    case IndicatorTypeEnum.INDICATOR_TYPE_DEMA: return 'dema';
+    case IndicatorTypeEnum.INDICATOR_TYPE_TEMA: return 'tema';
+    case IndicatorTypeEnum.INDICATOR_TYPE_TEMA_ZERO: return 'temazero';
+    default: return 'sma';
+  }
+}
+
+function getSourceTypeCode(source: SourceTypeEnum): string {
+  switch (source) {
+    case SourceTypeEnum.SOURCE_TYPE_L: return 'l';
+    case SourceTypeEnum.SOURCE_TYPE_O: return 'o';
+    case SourceTypeEnum.SOURCE_TYPE_C: return 'c';
+    case SourceTypeEnum.SOURCE_TYPE_H: return 'h';
+    case SourceTypeEnum.SOURCE_TYPE_LO: return 'lo';
+    case SourceTypeEnum.SOURCE_TYPE_LC: return 'lc';
+    case SourceTypeEnum.SOURCE_TYPE_LH: return 'lh';
+    case SourceTypeEnum.SOURCE_TYPE_OC: return 'oc';
+    case SourceTypeEnum.SOURCE_TYPE_OH: return 'oh';
+    case SourceTypeEnum.SOURCE_TYPE_CH: return 'ch';
+    case SourceTypeEnum.SOURCE_TYPE_LOC: return 'loc';
+    case SourceTypeEnum.SOURCE_TYPE_LOH: return 'loh';
+    case SourceTypeEnum.SOURCE_TYPE_LCH: return 'lch';
+    case SourceTypeEnum.SOURCE_TYPE_OCH: return 'och';
+    default: return 'l';
+  }
+}
+
+function updateURL() {
+  const payload = getRequestPayload();
+  if (!payload) return;
+
+  const params = new URLSearchParams();
+  const tfMap: Record<number, string> = {
+    [TimeframeEnum.TIMEFRAME_1M]: '1m',
+    [TimeframeEnum.TIMEFRAME_5M]: '5m',
+    [TimeframeEnum.TIMEFRAME_15M]: '15m',
+    [TimeframeEnum.TIMEFRAME_30M]: '30m',
+    [TimeframeEnum.TIMEFRAME_1H]: '1h',
+    [TimeframeEnum.TIMEFRAME_4H]: '4h',
+    [TimeframeEnum.TIMEFRAME_1D]: '1d',
+    [TimeframeEnum.TIMEFRAME_1W]: '1w'
+  };
+  params.set('tf', tfMap[payload.tf] || '4h');
+  params.set('tp', Math.round(payload.takeprofit).toString());
+  params.set('sl', Math.round(payload.stoploss).toString());
+
+  if (payload.ind1) {
+    const typeStr = getIndicatorTypeCode(payload.ind1.type);
+    const sourceStr = getSourceTypeCode(payload.ind1.source);
+    params.set('i1', `${typeStr},${payload.ind1.coef},${sourceStr}`);
+  }
+  if (payload.ind2) {
+    const typeStr = getIndicatorTypeCode(payload.ind2.type);
+    const sourceStr = getSourceTypeCode(payload.ind2.source);
+    params.set('i2', `${typeStr},${payload.ind2.coef},${sourceStr}`);
+  }
+
+  const newRelativePathQuery = window.location.pathname + '?' + params.toString();
+  window.history.replaceState(null, '', newRelativePathQuery);
+}
+
 // Fetch quotes from proxy API
 async function fetchQuotes() {
   const payload = getRequestPayload();
   if (!payload) return;
+
+  updateURL();
 
   showLoading(true);
   statusIndicator.className = 'status-indicator syncing';

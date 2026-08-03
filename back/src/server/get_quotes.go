@@ -3,6 +3,7 @@ package server
 import (
 	"analyzer"
 	"indicator"
+	"math"
 	"net/http"
 	"server/api"
 	"source"
@@ -126,9 +127,17 @@ func (s *Server) getQuotes(w http.ResponseWriter, body []byte) error {
 		return err
 	}
 
+	tp := req.Takeprofit
+	sl := req.Stoploss
+	if s.az.Cfg.Decimals > 0 {
+		factor := math.Pow10(int(s.az.Cfg.Decimals))
+		tp /= factor
+		sl /= factor
+	}
+
 	p := analyzer.TpSlParam{
-		Tp: req.Takeprofit,
-		Sl: req.Stoploss,
+		Tp: tp,
+		Sl: sl,
 	}
 	TpSlCloses := analyzer.CalculateClosings(s.az.Quotes, p, s.az.Cfg.Commission)
 
