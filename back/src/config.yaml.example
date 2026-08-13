@@ -16,10 +16,12 @@ http:
   active: false
 
 analyzer:
-  commission: 0.001
+  threads: 7
+  timeframe: "4h"
   pair: "SOLUSDT"
-  minCloses: 100
-  minSignals: 100
-  minSignalsLastMonths: 10
-  lastMonthsLimit: 3
-  minTakeProfits: 10
+  commission: 0.0018
+  minCloses: 100            # минимальное кол-во takeprofits за весь период
+  minSignals: 70            # минимальное кол-во пересечений индикаторов
+  minSignalsLastMonths: 4   # минимальное кол-во пересечений индикаторов
+  lastMonthsLimit: 2        # за указаный период
+  minTakeProfits: 40        # минимальное кол-во положительных сделок (takeprofits)

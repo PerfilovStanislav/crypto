@@ -1,7 +1,4 @@
 analyzer:
-  threads: 6
-  pair: "HYPEUSDT"
-  timeframe: "4h"
   decimals: 2
   takeprofit:
     start: 270

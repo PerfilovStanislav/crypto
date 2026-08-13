@@ -1,15 +1,13 @@
 analyzer:
-  threads: 11
-  pair: "AVAXUSDT"
-  timeframe: "4h"
+  decimals: 3
   takeprofit:
-    start: 1.0
-    end: 2.0
-    step: 0.05
+    start: 1000
+    end: 4000
+    step: 100
   stoploss:
-    start: 1.0
-    end: 2.0
-    step: 0.05
+    start: 1000
+    end: 4000
+    step: 100
 
   indicators:
     # 1-ая группа индикаторов

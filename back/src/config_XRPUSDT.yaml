@@ -1,15 +1,13 @@
 analyzer:
-  threads: 11
-  pair: "XRPUSDT"
-  timeframe: "4h"
+  decimals: 3
   takeprofit:
-    start: 0.01
-    end: 0.15
-    step: 0.002
+    start: 10
+    end: 150
+    step: 2
   stoploss:
-    start: 0.008
-    end: 0.03
-    step: 0.002
+    start: 8
+    end: 30
+    step: 2
 
   indicators:
     # 1-ая группа индикаторов
