@@ -1,0 +1,53 @@
+[package]
+name = "crypto-back"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+
+[lib]
+name = "crypto_back"
+path = "src/lib.rs"
+
+[[bin]]
+name = "crypto-back"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+axum = "0.8"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+clickhouse = "0.13"
+figment = { version = "0.10", features = ["yaml"] }
+hex = "0.4"
+prost = "0.13"
+prost-types = "0.13"
+rand = "0.8"
+rayon = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_repr = "0.1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "net"] }
+tokio-util = "0.7"
+tower-http = { version = "0.6", features = ["timeout", "catch-panic"] }
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+
+[build-dependencies]
+prost-build = "0.13"
+
+[dev-dependencies]
+criterion = "0.5"
+serde_json = { version = "1", features = ["float_roundtrip"] }
+
+[[bench]]
+name = "analyzer"
+harness = false
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+debug = 1
+
+[profile.bench]
+inherits = "release"
