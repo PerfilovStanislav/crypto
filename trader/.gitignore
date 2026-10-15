@@ -1,0 +1,6 @@
+# Real API keys and DB password
+config.yaml
+
+# Build output
+trader_bot
+/trader

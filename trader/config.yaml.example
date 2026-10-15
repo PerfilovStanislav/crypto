@@ -1,0 +1,39 @@
+# Copy to config.yaml and fill in. config.yaml is git-ignored.
+bybit:
+  # API key of a unified trading account (UTA) with spot trading permission.
+  # Use a dedicated sub-account: the bot treats the whole base coin balance
+  # (e.g. all SOL) as its open position.
+  api_key: "YOUR_API_KEY"
+  api_secret: "YOUR_API_SECRET"
+  # Optional, default https://api.bybit.com. Testnet: https://api-testnet.bybit.com
+  # base_url: "https://api-testnet.bybit.com"
+
+db:
+  host: "127.0.0.1"
+  port: 8123 # 8123 = HTTP, anything else = native protocol
+  user: "default"
+  password: ""
+  database: "default"
+
+# One strategy per symbol. Values come from the analyzer output.
+strategies:
+  - symbol: "SOLUSDT"
+    timeframe: "4h" # 1m 3m 5m 15m 30m 1h 2h 4h 1d
+    deposit_percent: 5.0 # % of the USDT balance per trade
+    # Same units as the analyzer: offsets from the entry price in 10^-decimals.
+    # decimals 2: take_profit 2000 = entry + 20.00 USDT, stop_loss 1500 = entry - 15.00 USDT
+    decimals: 2
+    take_profit: 2000
+    stop_loss: 1500
+    # Entry: indicator2 > indicator1 on the last closed candle.
+    # coef is the period for sma and the multiplier (analyzer range 0.2-1.5)
+    # for ema, dema, tema, temaZero.
+    # source: L O C H V LO LC LH OC OH CH LOC LOH LCH OCH
+    indicator1:
+      type: "sma"
+      source: "C"
+      coef: 5.0
+    indicator2:
+      type: "ema"
+      source: "C"
+      coef: 0.5
