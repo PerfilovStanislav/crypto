@@ -40,6 +40,7 @@ type HttpConfig struct {
 }
 
 type AnalyzerConfig struct {
+	Active               bool                `yaml:"active" env:"ACTIVE"` // запускать перебор стратегий
 	Threads              int                 `yaml:"threads" env:"THREADS"`
 	Pair                 string              `yaml:"pair" env:"PAIR"`
 	Timeframe            string              `yaml:"timeframe" env:"TIMEFRAME"`

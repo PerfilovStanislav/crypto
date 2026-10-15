@@ -66,10 +66,15 @@ async fn run() -> Result<()> {
         .active
         .then(|| tokio::spawn(server::serve(az.clone(), cfg.http.port, shutdown.clone())));
 
-    let start = Instant::now();
-    let (az_run, stop_run) = (az.clone(), stop.clone());
-    tokio::task::spawn_blocking(move || az_run.run(&stop_run)).await??;
-    println!("Execution time: {:?}", start.elapsed());
+    if cfg.analyzer.active {
+        let start = Instant::now();
+        let (az_run, stop_run) = (az.clone(), stop.clone());
+        tokio::task::spawn_blocking(move || az_run.run(&stop_run)).await??;
+        println!("Execution time: {:?}", start.elapsed());
+    } else {
+        println!("strategy search skipped: analyzer.active is false");
+        info!("strategy search skipped: analyzer.active is false");
+    }
 
     info!("waiting for background tasks or shutdown signal...");
     if let Some(server) = server {

@@ -85,6 +85,8 @@ impl Default for HttpConfig {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AnalyzerConfig {
+    /// Запускать перебор стратегий. Без него работают только синк свечей и HTTP API.
+    pub active: bool,
     pub threads: usize,
     pub pair: String,
     pub timeframe: String,
@@ -222,6 +224,9 @@ fn apply_env(cfg: &mut Config) -> Result<()> {
     if let Some(v) = env_value("ANALYZER_GPU") {
         a.gpu = parse_bool(&v).context("ANALYZER_GPU")?;
     }
+    if let Some(v) = env_value("ANALYZER_ACTIVE") {
+        a.active = parse_bool(&v).context("ANALYZER_ACTIVE")?;
+    }
     Ok(())
 }
 
@@ -275,6 +280,20 @@ mod tests {
         assert_eq!(find_configs(&root), Some(root.join("configs")));
 
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn analyzer_is_inactive_unless_enabled() {
+        let dir = env::temp_dir().join(format!("active-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let load = |yaml: &str| {
+            std::fs::write(dir.join("config.yaml"), yaml).unwrap();
+            Config::load_from(&dir).unwrap().analyzer.active
+        };
+        assert!(!load("analyzer:\n  threads: 1\n"), "off by default");
+        assert!(load("analyzer:\n  active: true\n"));
+        assert!(!load("analyzer:\n  active: false\n"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// Конфиги репозитория читаются из `configs/`. `config.yaml` не в git — без него тест пропускается.
