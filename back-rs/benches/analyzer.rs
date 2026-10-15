@@ -86,10 +86,11 @@ fn bench(c: &mut Criterion) {
     let az = Analyzer::with_cutoff_index(config(), synthetic_quotes(4380), 0);
     let grid = az.prepare().unwrap();
     eprintln!(
-        "grid: {} params, {} tp/sl, {} pairs, {} evaluations",
+        "grid: {} params, {} tp/sl, {} pairs (+{} duplicates skipped), {} evaluations",
         grid.params.len(),
         grid.tp_sl.len(),
         grid.compares.len(),
+        grid.duplicates.len(),
         grid.compares.len() * grid.tp_sl.len()
     );
 

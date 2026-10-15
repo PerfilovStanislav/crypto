@@ -17,8 +17,8 @@ use rayon::prelude::*;
 
 pub use closings::{calculate_closings, has_enough_closes, TpSlClose, TpSlParam};
 pub use fast::{
-    evaluate_trades, evaluate_trades_interleaved, fill_next_signal, signal_weights, Outcome,
-    NO_SIGNAL,
+    evaluate_trades, fill_signal_bits, scout, scout_interleaved, signal_weights, signal_words,
+    ColdOutcome, HotOutcome, Outcomes,
 };
 
 use crate::config::{AnalyzerConfig, RangeConfig};
@@ -78,8 +78,12 @@ pub struct Grid {
     pub prices: Vec<Vec<f64>>,
     /// Группы из конфига; пары строятся между соседними группами.
     pub groups: Vec<Vec<usize>>,
-    pub tp_sl: Vec<(TpSlParam, Vec<Outcome>)>,
+    pub tp_sl: Vec<(TpSlParam, Outcomes)>,
+    /// Пары для перебора: по одной на каждый уникальный набор сигналов.
     pub compares: Vec<Compare>,
+    /// Пропущенные пары `(дубликат, представитель из compares)` с тем же набором сигналов:
+    /// на любом TP/SL они дают ровно тот же результат.
+    pub duplicates: Vec<(Compare, Compare)>,
     /// Веса сделок по свече сигнала, см. [`signal_weights`].
     pub weights: Vec<f64>,
 }
@@ -225,7 +229,7 @@ impl Analyzer {
             .into_par_iter()
             .map(|p| {
                 let closes = calculate_closings(&self.quotes, p, self.cfg.commission);
-                (p, Outcome::from_closings(&closes))
+                (p, Outcomes::from_closings(&closes))
             })
             .collect();
         Ok(())
@@ -245,19 +249,92 @@ impl Analyzer {
         }
 
         let prices = &grid.prices;
-        grid.compares = pairs
+        let passing: Vec<Compare> = pairs
             .into_par_iter()
             .filter(|&(a, b)| self.enough_signals(&prices[a], &prices[b]))
             .map(|(ind1, ind2)| Compare { ind1, ind2 })
             .collect();
+
+        let (compares, duplicates) = self.dedupe_by_signals(passing, prices);
+        grid.compares = compares;
+        grid.duplicates = duplicates;
+    }
+
+    /// Оставляет первую пару из каждой группы с одинаковым набором сигналов. Группы ищутся
+    /// по хешу битов, совпадение хешей перепроверяется побитово — коллизия ничего не сломает.
+    fn dedupe_by_signals(
+        &self,
+        pairs: Vec<Compare>,
+        prices: &[Vec<f64>],
+    ) -> (Vec<Compare>, Vec<(Compare, Compare)>) {
+        let words = signal_words(self.ln);
+        let bits_of = |c: &Compare, buf: &mut Vec<u64>| {
+            buf.resize(words, 0);
+            fill_signal_bits(buf, &prices[c.ind1], &prices[c.ind2]);
+        };
+
+        let hashes: Vec<u64> = pairs
+            .par_iter()
+            .map_init(Vec::new, |buf, c| {
+                bits_of(c, buf);
+                buf.iter().fold(0u64, |h, &w| {
+                    (h.rotate_left(5) ^ w).wrapping_mul(0x517c_c1b7_2722_0a95)
+                })
+            })
+            .collect();
+
+        // Порядок внутри группы — исходный, поэтому представитель — самая ранняя пара.
+        let mut order: Vec<usize> = (0..pairs.len()).collect();
+        order.par_sort_unstable_by_key(|&i| (hashes[i], i));
+        let groups: Vec<&[usize]> = order
+            .chunk_by(|&a, &b| hashes[a] == hashes[b])
+            .filter(|g| g.len() > 1)
+            .collect();
+
+        // (индекс дубликата, индекс представителя)
+        let dup_of: Vec<(usize, usize)> = groups
+            .par_iter()
+            .flat_map_iter(|group| {
+                let (mut a, mut b) = (Vec::new(), Vec::new());
+                let mut reps: Vec<usize> = Vec::new();
+                let mut found = Vec::new();
+                for &i in group.iter() {
+                    bits_of(&pairs[i], &mut a);
+                    let same = reps.iter().copied().find(|&r| {
+                        bits_of(&pairs[r], &mut b);
+                        a == b
+                    });
+                    match same {
+                        Some(r) => found.push((i, r)),
+                        None => reps.push(i),
+                    }
+                }
+                found
+            })
+            .collect();
+
+        let mut keep = vec![true; pairs.len()];
+        let duplicates = dup_of
+            .iter()
+            .map(|&(i, r)| {
+                keep[i] = false;
+                (pairs[i], pairs[r])
+            })
+            .collect();
+        let compares = pairs
+            .into_iter()
+            .zip(keep)
+            .filter_map(|(c, k)| k.then_some(c))
+            .collect();
+        (compares, duplicates)
     }
 
     /// Перебирает все пары × TP/SL на текущем пуле rayon. `on_best` вызывается на каждый
     /// новый глобальный максимум `weighted_profit_to_dd`, `on_progress(done, total)` — по
     /// мере обработки пар. Возвращает лучший результат.
     ///
-    /// Пары идут блоками по [`PAIRS_PER_BLOCK`]: исходы одного TP/SL (~100 КБ) читаются
-    /// из памяти один раз на блок, а не на каждую пару.
+    /// Пары идут блоками по [`PAIRS_PER_BLOCK`]: маски сигналов блока (~35 КБ) и горячие
+    /// исходы одного TP/SL (~70 КБ) вместе помещаются в L1.
     pub fn search(
         &self,
         grid: &Grid,
@@ -269,7 +346,7 @@ impl Analyzer {
         let best: Mutex<Option<TaskResult>> = Mutex::new(None);
         let completed = AtomicUsize::new(0);
         let total = grid.compares.len();
-        let stride = self.ln + 1;
+        let words = signal_words(self.ln);
         let min_tp = self.cfg.min_take_profits;
 
         let report = |cmp: &Compare, param: &TpSlParam, metrics: Metrics| {
@@ -292,49 +369,57 @@ impl Analyzer {
             on_best(&result);
 
             let mut best = best.lock().unwrap_or_else(|e| e.into_inner());
-            let better = best.as_ref().map_or(true, |b| {
-                b.metrics.weighted_profit_to_dd < metrics.weighted_profit_to_dd
-            });
+            let better = best
+                .as_ref()
+                .is_none_or(|b| b.metrics.weighted_profit_to_dd < metrics.weighted_profit_to_dd);
             if better {
                 *best = Some(result);
             }
         };
 
+        // Точный пересчёт только для тех, кто по верхней оценке может побить текущий максимум.
+        let consider =
+            |cmp: &Compare, param: &TpSlParam, outcomes: &Outcomes, bits: &[u64], bound: f64| {
+                if bound <= f64::from_bits(max_bits.load(Ordering::Relaxed)) {
+                    return;
+                }
+                if let Some(metrics) = evaluate_trades(bits, outcomes, &grid.weights, min_tp) {
+                    report(cmp, param, metrics);
+                }
+            };
+
         grid.compares.par_chunks(PAIRS_PER_BLOCK).for_each_init(
             Vec::new,
-            |tables: &mut Vec<u32>, block| {
+            |signals: &mut Vec<u64>, block| {
                 if stop.load(Ordering::Relaxed) {
                     return;
                 }
-                tables.resize(block.len() * stride, NO_SIGNAL);
-                for (cmp, table) in block.iter().zip(tables.chunks_exact_mut(stride)) {
-                    fill_next_signal(table, &grid.prices[cmp.ind1], &grid.prices[cmp.ind2]);
+                signals.resize(block.len() * words, 0);
+                for (cmp, bits) in block.iter().zip(signals.chunks_exact_mut(words)) {
+                    fill_signal_bits(bits, &grid.prices[cmp.ind1], &grid.prices[cmp.ind2]);
                 }
 
                 for (param, outcomes) in &grid.tp_sl {
-                    let mut lanes = block
+                    let lanes = block
                         .chunks_exact(LANES)
-                        .zip(tables.chunks_exact(LANES * stride));
-                    for (cmps, tabs) in lanes.by_ref() {
-                        let tabs: [&[u32]; LANES] =
-                            std::array::from_fn(|i| &tabs[i * stride..][..stride]);
-                        let results =
-                            evaluate_trades_interleaved(tabs, outcomes, &grid.weights, min_tp);
-                        for (cmp, metrics) in cmps.iter().zip(results) {
-                            if let Some(metrics) = metrics {
-                                report(cmp, param, metrics);
+                        .zip(signals.chunks_exact(LANES * words));
+                    for (cmps, chunk) in lanes {
+                        let bits: [&[u64]; LANES] =
+                            std::array::from_fn(|i| &chunk[i * words..][..words]);
+                        let bounds = scout_interleaved(bits, &outcomes.hot, &grid.weights, min_tp);
+                        for ((cmp, bits), bound) in cmps.iter().zip(bits).zip(bounds) {
+                            if let Some(bound) = bound {
+                                consider(cmp, param, outcomes, bits, bound);
                             }
                         }
                     }
                     let tail = block.len() / LANES * LANES;
-                    for (cmp, table) in block[tail..]
+                    for (cmp, bits) in block[tail..]
                         .iter()
-                        .zip(tables[tail * stride..].chunks_exact(stride))
+                        .zip(signals[tail * words..].chunks_exact(words))
                     {
-                        if let Some(metrics) =
-                            evaluate_trades(table, outcomes, &grid.weights, min_tp)
-                        {
-                            report(cmp, param, metrics);
+                        if let Some(bound) = scout(bits, &outcomes.hot, &grid.weights, min_tp) {
+                            consider(cmp, param, outcomes, bits, bound);
                         }
                     }
                 }
@@ -358,6 +443,7 @@ impl Analyzer {
                 params = grid.params.len(),
                 tp_sl = grid.tp_sl.len(),
                 pairs = grid.compares.len(),
+                duplicate_pairs = grid.duplicates.len(),
                 "grid prepared"
             );
 
@@ -383,7 +469,7 @@ impl Analyzer {
 pub const PAIRS_PER_BLOCK: usize = 64;
 
 /// Сколько пар оценивается вперемешку, см. [`evaluate_trades_interleaved`].
-const LANES: usize = 2;
+const LANES: usize = 4;
 
 /// Оценка одной стратегии — эталонный порт `testTaskDirect` из Go. `None` — не прошла фильтры
 /// (weighted coef > 2, weighted pr/dd > 3, тейк-профитов не меньше `min_take_profits`).
@@ -584,6 +670,64 @@ mod tests {
         Analyzer::new(cfg, quotes)
             .run(&AtomicBool::new(false))
             .expect("run succeeds");
+    }
+
+    #[test]
+    fn identical_signal_sets_are_searched_once() {
+        let one = RangeConfig {
+            start: 1.0,
+            end: 1.0,
+            step: 1.0,
+        };
+        let ind = |kind, coef| IndicatorConfig {
+            kind,
+            coefs: coef,
+            sources: vec![SourceType::C],
+        };
+        // ema(1.0) и dema(1.0) равны самим ценам, значит пары с ними дают одни и те же сигналы.
+        let cfg = AnalyzerConfig {
+            min_signals: 1,
+            takeprofit: one,
+            stoploss: one,
+            indicators: vec![
+                vec![ind(IndicatorType::Ema, one), ind(IndicatorType::Dema, one)],
+                vec![ind(
+                    IndicatorType::Sma,
+                    RangeConfig {
+                        start: 5.0,
+                        end: 5.0,
+                        step: 1.0,
+                    },
+                )],
+            ],
+            ..Default::default()
+        };
+        let n = 200;
+        let closes: Vec<f64> = (0..n)
+            .map(|i| 100.0 + (i as f64 * 0.3).sin() * 5.0)
+            .collect();
+        let quotes = Quotes {
+            timestamps: (0..n as i64).collect(),
+            opens: closes.clone(),
+            highs: closes.iter().map(|c| c + 1.0).collect(),
+            lows: closes.iter().map(|c| c - 1.0).collect(),
+            volumes: vec![1.0; n],
+            closes,
+        };
+
+        let grid = Analyzer::with_cutoff_index(cfg, quotes, 0)
+            .prepare()
+            .unwrap();
+        assert_eq!(grid.compares.len(), 1);
+        assert_eq!(grid.duplicates.len(), 1);
+        let (dup, rep) = grid.duplicates[0];
+        assert_eq!(rep, grid.compares[0]);
+        assert_eq!(
+            grid.params[rep.ind1].kind,
+            IndicatorType::Ema,
+            "earliest pair is kept"
+        );
+        assert_eq!(grid.params[dup.ind1].kind, IndicatorType::Dema);
     }
 
     #[test]

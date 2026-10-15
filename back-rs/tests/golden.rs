@@ -5,9 +5,11 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
+use std::sync::atomic::AtomicBool;
+
 use crypto_back::analyzer::{
-    calculate_closings, evaluate, evaluate_trades, evaluate_trades_interleaved, fill_next_signal,
-    Analyzer, Grid, Metrics, NO_SIGNAL,
+    calculate_closings, evaluate, evaluate_trades, fill_signal_bits, scout, scout_interleaved,
+    signal_words, Analyzer, Compare, Grid, Metrics, TaskResult,
 };
 use crypto_back::config::AnalyzerConfig;
 use crypto_back::indicator::IndicatorType;
@@ -194,9 +196,9 @@ fn closings_match_go_exactly() {
     for g in &f.golden.tp_sl {
         let i = ours[&(g.tp.to_bits(), g.sl.to_bits())];
         let c = &f.grid.tp_sl[i].1;
-        let indexes: Vec<u32> = c.iter().map(|o| o.close).collect();
-        let coefs: Vec<f64> = c.iter().map(|o| o.coef).collect();
-        let drawdowns: Vec<f64> = c.iter().map(|o| o.drawdown).collect();
+        let indexes: Vec<u32> = c.hot.iter().map(|o| o.close).collect();
+        let coefs: Vec<f64> = c.cold.iter().map(|o| o.coef).collect();
+        let drawdowns: Vec<f64> = c.cold.iter().map(|o| o.drawdown).collect();
         assert_eq!(indexes, g.indexes, "indexes tp={} sl={}", g.tp, g.sl);
         assert_eq!(coefs, g.coefs, "coefs tp={} sl={}", g.tp, g.sl);
         assert_eq!(drawdowns, g.drawdowns, "drawdowns tp={} sl={}", g.tp, g.sl);
@@ -207,8 +209,34 @@ fn closings_match_go_exactly() {
 fn compares_match_go() {
     let Some(f) = load() else { return };
     let index = param_index(&f.grid);
-    let ours: HashSet<(usize, usize)> = f.grid.compares.iter().map(|c| (c.ind1, c.ind2)).collect();
+    // Перебираемые пары плюс отброшенные дубликаты — это ровно пары Go.
+    let ours: HashSet<(usize, usize)> = f
+        .grid
+        .compares
+        .iter()
+        .chain(f.grid.duplicates.iter().map(|(dup, _)| dup))
+        .map(|c| (c.ind1, c.ind2))
+        .collect();
+    assert_eq!(
+        f.grid.compares.len() + f.grid.duplicates.len(),
+        ours.len(),
+        "no pair counted twice"
+    );
     assert_eq!(ours.len(), f.golden.compares.len(), "same set of pairs");
+    eprintln!(
+        "pairs: {} searched, {} skipped as duplicates",
+        f.grid.compares.len(),
+        f.grid.duplicates.len()
+    );
+
+    let kept: HashSet<_> = f.grid.compares.iter().copied().collect();
+    for (dup, rep) in &f.grid.duplicates {
+        assert!(kept.contains(rep), "representative is searched");
+        let signals = |c: &crypto_back::analyzer::Compare| {
+            f.az.compare_indicators(&f.grid.prices[c.ind1], &f.grid.prices[c.ind2])
+        };
+        assert_eq!(signals(dup), signals(rep), "duplicate has the same signals");
+    }
 
     for g in &f.golden.compares {
         let (a, b) = (index[&g.ind1.key()], index[&g.ind2.key()]);
@@ -240,12 +268,13 @@ fn evaluations_match_go() {
         .collect();
 
     let mut matched = 0;
-    let mut table = vec![NO_SIGNAL; f.az.len() + 1];
+    let mut bits = vec![0; signal_words(f.az.len())];
+    let mut scouted = 0;
     for (ci, gc) in f.golden.compares.iter().enumerate() {
         let (a, b) = (index[&gc.ind1.key()], index[&gc.ind2.key()]);
         let (p1, p2) = (&f.grid.prices[a], &f.grid.prices[b]);
         let signals = f.az.compare_indicators(p1, p2).unwrap();
-        fill_next_signal(&mut table, p1, p2);
+        fill_signal_bits(&mut bits, p1, p2);
 
         for (ti, gt) in f.golden.tp_sl.iter().enumerate() {
             let (param, outcomes) = &f.grid.tp_sl[tp_sl[&(gt.tp.to_bits(), gt.sl.to_bits())]];
@@ -253,7 +282,17 @@ fn evaluations_match_go() {
             let ours = evaluate(&signals, &closes, f.az.len(), min_tp);
 
             // Быстрый перебор: те же решения и метрики, weighted pr/dd — с точностью до округления.
-            let fast = evaluate_trades(&table, outcomes, &f.grid.weights, min_tp);
+            let fast = evaluate_trades(&bits, outcomes, &f.grid.weights, min_tp);
+
+            // Быстрый проход: отсекает только то, что точно не пройдёт, и оценивает сверху.
+            let bound = scout(&bits, &outcomes.hot, &f.grid.weights, min_tp);
+            match (bound, &fast) {
+                (Some(b), Some(m)) => assert!(b >= m.weighted_profit_to_dd, "{b} < {m:?}"),
+                (None, Some(m)) => panic!("scout dropped a passing strategy {m:?}"),
+                _ => {}
+            }
+            scouted += bound.is_some() as usize;
+
             match (&fast, &ours) {
                 (Some(a), Some(b)) => {
                     assert!(rel_eq(
@@ -296,7 +335,7 @@ fn evaluations_match_go() {
             }
         }
     }
-    eprintln!("evaluations: {matched} passing strategies match Go");
+    eprintln!("evaluations: {matched} passing strategies match Go, scout kept {scouted}");
     assert_eq!(matched, f.golden.passed.len());
 }
 
@@ -325,31 +364,70 @@ fn assert_metrics(m: &Metrics, g: &GoldenEval) {
 }
 
 #[test]
-fn interleaved_matches_single_lane() {
+fn interleaved_scout_matches_single_lane() {
     let Some(f) = load() else { return };
-    let ln = f.az.len();
+    let words = signal_words(f.az.len());
     let min_tp = f.golden.config.min_take_profits;
-    let tables: Vec<Vec<u32>> = f
+    let masks: Vec<Vec<u64>> = f
         .grid
         .compares
         .iter()
         .map(|c| {
-            let mut t = vec![NO_SIGNAL; ln + 1];
-            fill_next_signal(&mut t, &f.grid.prices[c.ind1], &f.grid.prices[c.ind2]);
-            t
+            let mut bits = vec![0; words];
+            fill_signal_bits(&mut bits, &f.grid.prices[c.ind1], &f.grid.prices[c.ind2]);
+            bits
         })
         .collect();
 
     let mut checked = 0;
     for (_, outcomes) in &f.grid.tp_sl {
-        for group in tables.chunks_exact(3) {
-            let tabs = [&group[0][..], &group[1][..], &group[2][..]];
-            let interleaved = evaluate_trades_interleaved(tabs, outcomes, &f.grid.weights, min_tp);
-            for (t, got) in tabs.iter().zip(interleaved) {
-                assert_eq!(got, evaluate_trades(t, outcomes, &f.grid.weights, min_tp));
+        for group in masks.chunks_exact(3) {
+            let bits = [&group[0][..], &group[1][..], &group[2][..]];
+            let interleaved = scout_interleaved(bits, &outcomes.hot, &f.grid.weights, min_tp);
+            for (b, got) in bits.iter().zip(interleaved) {
+                assert_eq!(got, scout(b, &outcomes.hot, &f.grid.weights, min_tp));
                 checked += 1;
             }
         }
     }
     assert!(checked > 0);
+}
+
+/// `search` с отсевом и точным пересчётом находит тот же максимум, что полный точный перебор.
+#[test]
+fn search_finds_exact_best() {
+    let Some(f) = load() else { return };
+    let words = signal_words(f.az.len());
+    let min_tp = f.golden.config.min_take_profits;
+
+    let mut brute: Option<(f64, Compare, usize)> = None;
+    let mut bits = vec![0; words];
+    for cmp in &f.grid.compares {
+        fill_signal_bits(
+            &mut bits,
+            &f.grid.prices[cmp.ind1],
+            &f.grid.prices[cmp.ind2],
+        );
+        for (ti, (_, outcomes)) in f.grid.tp_sl.iter().enumerate() {
+            if let Some(m) = evaluate_trades(&bits, outcomes, &f.grid.weights, min_tp) {
+                if brute.is_none_or(|(w, _, _)| m.weighted_profit_to_dd > w) {
+                    brute = Some((m.weighted_profit_to_dd, *cmp, ti));
+                }
+            }
+        }
+    }
+    let (want, cmp, ti) = brute.expect("fixture has passing strategies");
+
+    let found =
+        f.az.search(
+            &f.grid,
+            &AtomicBool::new(false),
+            &|_: &TaskResult| {},
+            &|_, _| {},
+        )
+        .expect("search finds a result");
+    assert_eq!(found.metrics.weighted_profit_to_dd, want);
+    assert_eq!(found.task.ind1, f.grid.params[cmp.ind1]);
+    assert_eq!(found.task.ind2, f.grid.params[cmp.ind2]);
+    assert_eq!(found.task.tp_sl, f.grid.tp_sl[ti].0);
 }
