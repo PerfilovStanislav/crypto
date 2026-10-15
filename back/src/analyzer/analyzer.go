@@ -7,6 +7,7 @@ import (
 	"math"
 	"runtime"
 	"source"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -136,9 +137,7 @@ func (a *Analyzer) Run() {
 	var wg sync.WaitGroup
 
 	for w := 0; w < a.Cfg.Threads; w++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for {
 				idx := atomic.AddInt64(&index, 1) - 1
 				if idx >= numJobs {
@@ -156,20 +155,20 @@ func (a *Analyzer) Run() {
 					if pct > 0 && pct <= 10 {
 						if atomic.CompareAndSwapInt32(&printedPct[pct], 0, 1) {
 							pctVal := pct * 10
-							bar := ""
-							for i := 0; i < 10; i++ {
+							var bar strings.Builder
+							for i := range 10 {
 								if i < int(pct) {
-									bar += "█"
+									bar.WriteString("█")
 								} else {
-									bar += "░"
+									bar.WriteString("░")
 								}
 							}
-							fmt.Printf("Progress: [%s] %d%% (%d/%d jobs)\n", bar, pctVal, completedVal, numJobs)
+							fmt.Printf("Progress: [%s] %d%% (%d/%d jobs)\n", bar.String(), pctVal, completedVal, numJobs)
 						}
 					}
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -188,7 +187,7 @@ func (a *Analyzer) testTaskDirect(ic IndicatorsCompare, signals []int, tpSlParam
 		maxDrawdown       = 0.0
 	)
 
-	for i := 0; i < len(signals); i++ {
+	for i := range signals {
 		openingSignalIndex := signals[i]
 		if openingSignalIndex < closingIndex {
 			continue
@@ -223,7 +222,7 @@ func (a *Analyzer) testTaskDirect(ic IndicatorsCompare, signals []int, tpSlParam
 				totalCandles = 0
 				cIndex       = -1
 			)
-			for i := 0; i < len(signals); i++ {
+			for i := range signals {
 				openingSignalIndex := signals[i]
 				if openingSignalIndex < cIndex {
 					continue
