@@ -12,13 +12,19 @@ path = "src/lib.rs"
 name = "crypto-back"
 path = "src/main.rs"
 
+[features]
+# Быстрый проход перебора на GPU (wgpu: Metal на macOS, Vulkan/DX12 в других ОС).
+gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+
 [dependencies]
 anyhow = "1"
 axum = "0.8"
+bytemuck = { version = "1", features = ["derive"], optional = true }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clickhouse = "0.13"
 figment = { version = "0.10", features = ["yaml"] }
 hex = "0.4"
+pollster = { version = "0.4", optional = true }
 prost = "0.13"
 prost-types = "0.13"
 rand = "0.8"
@@ -32,6 +38,7 @@ tower-http = { version = "0.6", features = ["timeout", "catch-panic"] }
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+wgpu = { version = "25", optional = true }
 
 [build-dependencies]
 prost-build = "0.13"

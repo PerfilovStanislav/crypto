@@ -94,6 +94,8 @@ pub struct AnalyzerConfig {
     pub min_signals_last_months: usize,
     pub last_months_limit: u32,
     pub min_take_profits: usize,
+    /// Быстрый проход перебора на GPU (нужна сборка с `--features gpu`).
+    pub gpu: bool,
     pub takeprofit: RangeConfig,
     pub stoploss: RangeConfig,
     pub indicators: Vec<Vec<IndicatorConfig>>,
@@ -198,6 +200,9 @@ fn apply_env(cfg: &mut Config) -> Result<()> {
     )?;
     env_parse("ANALYZER_LAST_MONTHS_LIMIT", &mut a.last_months_limit)?;
     env_parse("ANALYZER_MIN_TAKE_PROFITS", &mut a.min_take_profits)?;
+    if let Some(v) = env_value("ANALYZER_GPU") {
+        a.gpu = parse_bool(&v).context("ANALYZER_GPU")?;
+    }
     Ok(())
 }
 

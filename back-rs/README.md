@@ -15,10 +15,21 @@ CONFIG_DIR=../back/src cargo run --release
 
 ClickHouse подключается только по HTTP-порту (8123). Нативный порт 9000 не поддерживается.
 
+### Перебор на GPU
+
+Быстрый проход перебора может делать видеокарта (wgpu: Metal на macOS). Для этого нужна сборка с фичей `gpu` и ключ `analyzer.gpu: true` в конфиге (или `ANALYZER_GPU=true`):
+
+```bash
+CONFIG_DIR=../back/src ANALYZER_GPU=true cargo run --release --features gpu
+```
+
+Видеокарта не умеет f64, поэтому она только отбирает кандидатов, с запасом на погрешность f32. Каждого кандидата CPU пересчитывает точно, так что результат тот же, что у перебора на CPU. Если GPU недоступен, перебор идёт на CPU, а в консоль пишется причина.
+
 ## Проверки
 
 ```bash
 cargo test --release                 # unit-тесты и сверка с Go по фикстурам
+cargo test --release --features gpu  # то же плюс проверка GPU-отбора
 cargo bench                          # prepare и полный перебор на синтетике (criterion)
 ```
 

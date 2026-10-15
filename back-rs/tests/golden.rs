@@ -431,3 +431,71 @@ fn search_finds_exact_best() {
     assert_eq!(found.task.ind2, f.grid.params[cmp.ind2]);
     assert_eq!(found.task.tp_sl, f.grid.tp_sl[ti].0);
 }
+
+/// GPU отбирает с запасом: среди его кандидатов (порог 3) есть все стратегии, которые проходят
+/// фильтры по точному расчёту, а `search_gpu` находит тот же максимум, что CPU.
+#[cfg(feature = "gpu")]
+#[test]
+fn gpu_candidates_cover_exact_passes() {
+    use crypto_back::analyzer::gpu::GpuScout;
+
+    let Some(f) = load() else { return };
+    let words = signal_words(f.az.len());
+    let min_tp = f.golden.config.min_take_profits;
+    let gpu = match GpuScout::new(&f.grid, f.az.len(), words) {
+        Ok(gpu) => gpu,
+        Err(e) => {
+            eprintln!("skip: no GPU ({e:#})");
+            return;
+        }
+    };
+
+    let mut bits = vec![0u64; f.grid.compares.len() * words];
+    for (cmp, b) in f.grid.compares.iter().zip(bits.chunks_exact_mut(words)) {
+        fill_signal_bits(b, &f.grid.prices[cmp.ind1], &f.grid.prices[cmp.ind2]);
+    }
+    let found: HashSet<(usize, usize)> = gpu
+        .candidates(&bits, f.grid.compares.len(), 3.0, min_tp)
+        .unwrap()
+        .expect("candidate buffer is large enough")
+        .into_iter()
+        .map(|(p, t)| (p as usize, t as usize))
+        .collect();
+
+    let mut passing = 0;
+    for (p, b) in bits.chunks_exact(words).enumerate() {
+        for (t, (_, outcomes)) in f.grid.tp_sl.iter().enumerate() {
+            if evaluate_trades(b, outcomes, &f.grid.weights, min_tp).is_some() {
+                passing += 1;
+                assert!(found.contains(&(p, t)), "GPU missed pair #{p} tp/sl #{t}");
+            }
+        }
+    }
+    eprintln!(
+        "gpu: {} candidates cover {passing} passing strategies",
+        found.len()
+    );
+
+    let cpu =
+        f.az.search(
+            &f.grid,
+            &AtomicBool::new(false),
+            &|_: &TaskResult| {},
+            &|_, _| {},
+        )
+        .unwrap();
+    let on_gpu =
+        f.az.search_gpu(
+            &f.grid,
+            &AtomicBool::new(false),
+            &|_: &TaskResult| {},
+            &|_, _| {},
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(on_gpu.metrics, cpu.metrics);
+    assert_eq!(
+        (on_gpu.task.ind1, on_gpu.task.ind2, on_gpu.task.tp_sl),
+        (cpu.task.ind1, cpu.task.ind2, cpu.task.tp_sl)
+    );
+}

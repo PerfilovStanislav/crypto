@@ -6,6 +6,8 @@
 mod closings;
 mod fast;
 mod format;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -342,51 +344,9 @@ impl Analyzer {
         on_best: &(dyn Fn(&TaskResult) + Sync),
         on_progress: &(dyn Fn(usize, usize) + Sync),
     ) -> Option<TaskResult> {
-        let max_bits = AtomicU64::new(0f64.to_bits());
-        let best: Mutex<Option<TaskResult>> = Mutex::new(None);
+        let tracker = Tracker::new(self, grid, on_best);
         let completed = AtomicUsize::new(0);
         let total = grid.compares.len();
-        let words = signal_words(self.ln);
-        let min_tp = self.cfg.min_take_profits;
-
-        let report = |cmp: &Compare, param: &TpSlParam, metrics: Metrics| {
-            let current = f64::from_bits(max_bits.load(Ordering::Relaxed));
-            if metrics.weighted_profit_to_dd <= current
-                || !update_max(&max_bits, metrics.weighted_profit_to_dd)
-            {
-                return;
-            }
-            let result = TaskResult {
-                task: Task {
-                    ind1: grid.params[cmp.ind1],
-                    ind2: grid.params[cmp.ind2],
-                    tp_sl: *param,
-                    timeframe: self.cfg.timeframe.clone(),
-                    decimals: self.cfg.decimals,
-                },
-                metrics,
-            };
-            on_best(&result);
-
-            let mut best = best.lock().unwrap_or_else(|e| e.into_inner());
-            let better = best
-                .as_ref()
-                .is_none_or(|b| b.metrics.weighted_profit_to_dd < metrics.weighted_profit_to_dd);
-            if better {
-                *best = Some(result);
-            }
-        };
-
-        // Точный пересчёт только для тех, кто по верхней оценке может побить текущий максимум.
-        let consider =
-            |cmp: &Compare, param: &TpSlParam, outcomes: &Outcomes, bits: &[u64], bound: f64| {
-                if bound <= f64::from_bits(max_bits.load(Ordering::Relaxed)) {
-                    return;
-                }
-                if let Some(metrics) = evaluate_trades(bits, outcomes, &grid.weights, min_tp) {
-                    report(cmp, param, metrics);
-                }
-            };
 
         grid.compares.par_chunks(PAIRS_PER_BLOCK).for_each_init(
             Vec::new,
@@ -394,41 +354,132 @@ impl Analyzer {
                 if stop.load(Ordering::Relaxed) {
                     return;
                 }
-                signals.resize(block.len() * words, 0);
-                for (cmp, bits) in block.iter().zip(signals.chunks_exact_mut(words)) {
-                    fill_signal_bits(bits, &grid.prices[cmp.ind1], &grid.prices[cmp.ind2]);
-                }
-
-                for (param, outcomes) in &grid.tp_sl {
-                    let lanes = block
-                        .chunks_exact(LANES)
-                        .zip(signals.chunks_exact(LANES * words));
-                    for (cmps, chunk) in lanes {
-                        let bits: [&[u64]; LANES] =
-                            std::array::from_fn(|i| &chunk[i * words..][..words]);
-                        let bounds = scout_interleaved(bits, &outcomes.hot, &grid.weights, min_tp);
-                        for ((cmp, bits), bound) in cmps.iter().zip(bits).zip(bounds) {
-                            if let Some(bound) = bound {
-                                consider(cmp, param, outcomes, bits, bound);
-                            }
-                        }
-                    }
-                    let tail = block.len() / LANES * LANES;
-                    for (cmp, bits) in block[tail..]
-                        .iter()
-                        .zip(signals[tail * words..].chunks_exact(words))
-                    {
-                        if let Some(bound) = scout(bits, &outcomes.hot, &grid.weights, min_tp) {
-                            consider(cmp, param, outcomes, bits, bound);
-                        }
-                    }
-                }
+                self.scout_block(&tracker, block, signals);
                 let done = completed.fetch_add(block.len(), Ordering::Relaxed) + block.len();
                 on_progress(done, total);
             },
         );
 
-        best.into_inner().unwrap_or_else(|e| e.into_inner())
+        tracker.into_best()
+    }
+
+    /// То же, что [`Analyzer::search`], но быстрый проход делает GPU: CPU считает маски
+    /// сигналов партии и точно пересчитывает найденных GPU кандидатов.
+    #[cfg(feature = "gpu")]
+    pub fn search_gpu(
+        &self,
+        grid: &Grid,
+        stop: &AtomicBool,
+        on_best: &(dyn Fn(&TaskResult) + Sync),
+        on_progress: &(dyn Fn(usize, usize) + Sync),
+    ) -> Result<Option<TaskResult>> {
+        let words = signal_words(self.ln);
+        let gpu = gpu::GpuScout::new(grid, self.ln, words)?;
+        tracing::info!(adapter = %gpu.adapter, "GPU scout ready");
+        println!("GPU: {}", gpu.adapter);
+
+        let tracker = Tracker::new(self, grid, on_best);
+        let total = grid.compares.len();
+        let mut done = 0;
+        let mut bits: Vec<u64> = Vec::new();
+        let (mut t_bits, mut t_gpu, mut t_exact) = Default::default();
+        let mut candidates = 0usize;
+
+        for batch in grid.compares.chunks(gpu::PAIRS_PER_BATCH) {
+            if stop.load(Ordering::Relaxed) {
+                break;
+            }
+            let started = std::time::Instant::now();
+            bits.resize(batch.len() * words, 0);
+            bits.par_chunks_mut(words)
+                .zip(batch.par_iter())
+                .for_each(|(b, cmp)| {
+                    fill_signal_bits(b, &grid.prices[cmp.ind1], &grid.prices[cmp.ind2])
+                });
+
+            let threshold = tracker.max().max(3.0);
+            let scouted = std::time::Instant::now();
+            t_bits += scouted - started;
+            let found = gpu.candidates(&bits, batch.len(), threshold, self.cfg.min_take_profits)?;
+            let exact = std::time::Instant::now();
+            t_gpu += exact - scouted;
+            candidates += found.as_ref().map_or(0, Vec::len);
+            match found {
+                Some(found) => found.par_iter().for_each(|&(p, t)| {
+                    let p = p as usize;
+                    tracker.consider(
+                        &batch[p],
+                        t as usize,
+                        &bits[p * words..][..words],
+                        f64::INFINITY,
+                    );
+                }),
+                None => {
+                    tracing::warn!(
+                        pairs = batch.len(),
+                        "GPU candidate buffer overflow, batch searched on CPU"
+                    );
+                    batch
+                        .par_chunks(PAIRS_PER_BLOCK)
+                        .for_each_init(Vec::new, |signals, block| {
+                            self.scout_block(&tracker, block, signals)
+                        });
+                }
+            }
+            t_exact += exact.elapsed();
+            done += batch.len();
+            on_progress(done, total);
+        }
+
+        let (t_bits, t_gpu, t_exact): (
+            std::time::Duration,
+            std::time::Duration,
+            std::time::Duration,
+        ) = (t_bits, t_gpu, t_exact);
+        tracing::info!(
+            masks = ?t_bits,
+            gpu = ?t_gpu,
+            exact = ?t_exact,
+            candidates,
+            "GPU search finished"
+        );
+        Ok(tracker.into_best())
+    }
+
+    /// Быстрый проход блока пар по всем TP/SL на CPU, кандидаты — в точный пересчёт.
+    fn scout_block(&self, tracker: &Tracker, block: &[Compare], signals: &mut Vec<u64>) {
+        let grid = tracker.grid;
+        let words = signal_words(self.ln);
+        let min_tp = self.cfg.min_take_profits;
+
+        signals.resize(block.len() * words, 0);
+        for (cmp, bits) in block.iter().zip(signals.chunks_exact_mut(words)) {
+            fill_signal_bits(bits, &grid.prices[cmp.ind1], &grid.prices[cmp.ind2]);
+        }
+
+        for (t, (_, outcomes)) in grid.tp_sl.iter().enumerate() {
+            let lanes = block
+                .chunks_exact(LANES)
+                .zip(signals.chunks_exact(LANES * words));
+            for (cmps, chunk) in lanes {
+                let bits: [&[u64]; LANES] = std::array::from_fn(|i| &chunk[i * words..][..words]);
+                let bounds = scout_interleaved(bits, &outcomes.hot, &grid.weights, min_tp);
+                for ((cmp, bits), bound) in cmps.iter().zip(bits).zip(bounds) {
+                    if let Some(bound) = bound {
+                        tracker.consider(cmp, t, bits, bound);
+                    }
+                }
+            }
+            let tail = block.len() / LANES * LANES;
+            for (cmp, bits) in block[tail..]
+                .iter()
+                .zip(signals[tail * words..].chunks_exact(words))
+            {
+                if let Some(bound) = scout(bits, &outcomes.hot, &grid.weights, min_tp) {
+                    tracker.consider(cmp, t, bits, bound);
+                }
+            }
+        }
     }
 
     /// Полный прогон с выводом в консоль, как `Analyzer.Run` в Go.
@@ -460,7 +511,20 @@ impl Analyzer {
                 println!("Progress: [{bar}] {}% ({done}/{total} jobs)", pct * 10);
             };
 
-            Ok(self.search(&grid, stop, &|r: &TaskResult| println!("{r}"), &progress))
+            let on_best = |r: &TaskResult| println!("{r}");
+            if self.cfg.gpu {
+                #[cfg(feature = "gpu")]
+                match self.search_gpu(&grid, stop, &on_best, &progress) {
+                    Ok(best) => return Ok(best),
+                    Err(e) => {
+                        tracing::warn!(error = %format!("{e:#}"), "GPU unavailable, searching on CPU");
+                        println!("GPU unavailable ({e:#}), searching on CPU");
+                    }
+                }
+                #[cfg(not(feature = "gpu"))]
+                bail!("analyzer.gpu requires a build with `--features gpu`");
+            }
+            Ok(self.search(&grid, stop, &on_best, &progress))
         })
     }
 }
@@ -567,17 +631,76 @@ pub fn evaluate(
     })
 }
 
-/// CAS-цикл: записывает `val`, если он больше текущего максимума.
-fn update_max(bits: &AtomicU64, val: f64) -> bool {
-    let mut cur = bits.load(Ordering::Relaxed);
-    loop {
-        if val <= f64::from_bits(cur) {
-            return false;
+/// Глобальный максимум `weighted_profit_to_dd` и лучший результат во время перебора.
+struct Tracker<'a> {
+    analyzer: &'a Analyzer,
+    grid: &'a Grid,
+    on_best: &'a (dyn Fn(&TaskResult) + Sync),
+    max_bits: AtomicU64,
+    best: Mutex<Option<TaskResult>>,
+}
+
+impl<'a> Tracker<'a> {
+    fn new(
+        analyzer: &'a Analyzer,
+        grid: &'a Grid,
+        on_best: &'a (dyn Fn(&TaskResult) + Sync),
+    ) -> Self {
+        Self {
+            analyzer,
+            grid,
+            on_best,
+            max_bits: AtomicU64::new(0f64.to_bits()),
+            best: Mutex::new(None),
         }
-        match bits.compare_exchange_weak(cur, val.to_bits(), Ordering::Relaxed, Ordering::Relaxed) {
-            Ok(_) => return true,
-            Err(actual) => cur = actual,
+    }
+
+    fn max(&self) -> f64 {
+        f64::from_bits(self.max_bits.load(Ordering::Relaxed))
+    }
+
+    /// Точный пересчёт пары на TP/SL `t`, если верхняя оценка `bound` может побить максимум.
+    fn consider(&self, cmp: &Compare, t: usize, bits: &[u64], bound: f64) {
+        if bound <= self.max() {
+            return;
         }
+        let (param, outcomes) = &self.grid.tp_sl[t];
+        let min_tp = self.analyzer.cfg.min_take_profits;
+        if let Some(metrics) = evaluate_trades(bits, outcomes, &self.grid.weights, min_tp) {
+            self.report(cmp, param, metrics);
+        }
+    }
+
+    fn report(&self, cmp: &Compare, param: &TpSlParam, metrics: Metrics) {
+        if metrics.weighted_profit_to_dd <= self.max() {
+            return;
+        }
+        // Максимум меняется и печатается только под замком: иначе параллельные находки
+        // печатались бы не по порядку и последняя строка могла оказаться не лучшей.
+        let mut best = self.best.lock().unwrap_or_else(|e| e.into_inner());
+        if metrics.weighted_profit_to_dd <= self.max() {
+            return;
+        }
+        self.max_bits
+            .store(metrics.weighted_profit_to_dd.to_bits(), Ordering::Relaxed);
+
+        let cfg = &self.analyzer.cfg;
+        let result = TaskResult {
+            task: Task {
+                ind1: self.grid.params[cmp.ind1],
+                ind2: self.grid.params[cmp.ind2],
+                tp_sl: *param,
+                timeframe: cfg.timeframe.clone(),
+                decimals: cfg.decimals,
+            },
+            metrics,
+        };
+        (self.on_best)(&result);
+        *best = Some(result);
+    }
+
+    fn into_best(self) -> Option<TaskResult> {
+        self.best.into_inner().unwrap_or_else(|e| e.into_inner())
     }
 }
 
