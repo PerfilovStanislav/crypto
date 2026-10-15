@@ -1,6 +1,7 @@
 //! Конфиг читается так же, как в Go-версии (cleanenv):
 //! значения по умолчанию → `config.yaml` → `config_{PAIR}.yaml` → переменные окружения.
-//! Каталог с конфигами задаётся `CONFIG_DIR` (по умолчанию текущий).
+//! Каталог с конфигами — `CONFIG_DIR`, а если он не задан, ближайший `configs/` с `config.yaml`
+//! вверх от текущего (в репозитории это `configs/` рядом с `back/` и `back-rs/`).
 
 use std::env;
 use std::path::{Path, PathBuf};
@@ -129,10 +130,7 @@ impl RangeConfig {
 
 impl Config {
     pub fn load() -> Result<Self> {
-        let dir = env::var_os("CONFIG_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
-        Self::load_from(&dir)
+        Self::load_from(&config_dir()?)
     }
 
     pub fn load_from(dir: &Path) -> Result<Self> {
@@ -161,6 +159,27 @@ impl Config {
 
         Ok(cfg)
     }
+}
+
+/// `CONFIG_DIR` или ближайший каталог `configs/` с `config.yaml` вверх от текущего.
+pub fn config_dir() -> Result<PathBuf> {
+    if let Some(dir) = env::var_os("CONFIG_DIR").filter(|d| !d.is_empty()) {
+        return Ok(dir.into());
+    }
+    let cwd = env::current_dir()?;
+    find_configs(&cwd).with_context(|| {
+        format!(
+            "configs/config.yaml not found in {} or its parents; set CONFIG_DIR",
+            cwd.display()
+        )
+    })
+}
+
+fn find_configs(start: &Path) -> Option<PathBuf> {
+    start
+        .ancestors()
+        .map(|d| d.join("configs"))
+        .find(|d| d.join("config.yaml").is_file())
 }
 
 fn existing(path: PathBuf) -> Result<PathBuf> {
@@ -229,5 +248,44 @@ fn parse_bool(v: &str) -> Result<bool> {
         "1" | "t" | "T" | "TRUE" | "true" | "True" => Ok(true),
         "0" | "f" | "F" | "FALSE" | "false" | "False" => Ok(false),
         _ => bail!("invalid bool {v:?}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_configs_in_parent_dirs() {
+        let root = env::temp_dir().join(format!(
+            "configs-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let nested = root.join("back").join("src");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::create_dir_all(root.join("configs")).unwrap();
+        assert_eq!(find_configs(&nested), None, "no config.yaml yet");
+
+        std::fs::write(root.join("configs").join("config.yaml"), "").unwrap();
+        assert_eq!(find_configs(&nested), Some(root.join("configs")));
+        assert_eq!(find_configs(&root), Some(root.join("configs")));
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// Конфиги репозитория читаются из `configs/`. `config.yaml` не в git — без него тест пропускается.
+    #[test]
+    fn loads_repo_configs() {
+        let Some(dir) = find_configs(Path::new(env!("CARGO_MANIFEST_DIR"))) else {
+            eprintln!("skip: configs/config.yaml not found");
+            return;
+        };
+        let cfg = Config::load_from(&dir).unwrap();
+        assert!(!cfg.analyzer.pair.is_empty());
+        assert!(!cfg.analyzer.indicators.is_empty(), "pair config is merged");
     }
 }

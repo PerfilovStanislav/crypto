@@ -1,6 +1,6 @@
 //! Синк свечей с Bybit во временную таблицу и сверка с тем, что записала Go-версия.
 //! Нужен ClickHouse из `core/docker-compose.yml` и доступ к api.bybit.com:
-//!   CONFIG_DIR=../back/src cargo test --release --test clickhouse -- --ignored --nocapture
+//!   cargo test --release --test clickhouse -- --ignored --nocapture
 
 use std::collections::HashMap;
 
@@ -13,8 +13,7 @@ const TEST_TABLE: &str = "default.market_data_rs_test";
 #[tokio::test]
 #[ignore = "needs ClickHouse and network access to Bybit"]
 async fn sync_writes_same_candles_as_go() {
-    let dir = std::env::var("CONFIG_DIR").unwrap_or_else(|_| "../back/src".into());
-    let cfg = Config::load_from(dir.as_ref()).unwrap();
+    let cfg = Config::load().unwrap();
     let tf: Timeframe = cfg.analyzer.timeframe.parse().unwrap();
     let pair = cfg.analyzer.pair.as_str();
 

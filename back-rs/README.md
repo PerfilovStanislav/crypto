@@ -7,10 +7,10 @@ Rust-версия `back/`. Делает то же, что Go-версия:
 
 ## Запуск
 
-Конфиги те же, что у Go: `config.yaml` и `config_{PAIR}.yaml`. Каталог с ними задаётся `CONFIG_DIR`, по умолчанию текущий.
+Конфиги общие с Go: `config.yaml` и `config_{PAIR}.yaml` в каталоге `configs/` рядом с `back/` и `back-rs/`. `config.yaml` с паролем к базе не хранится в git, шаблон — `configs/config.yaml.example`. Каталог ищется вверх от текущего, а `CONFIG_DIR` задаёт его явно.
 
 ```bash
-CONFIG_DIR=../back/src cargo run --release
+cargo run --release
 ```
 
 ClickHouse подключается только по HTTP-порту (8123). Нативный порт 9000 не поддерживается.
@@ -20,7 +20,7 @@ ClickHouse подключается только по HTTP-порту (8123). Н
 Быстрый проход перебора может делать видеокарта (wgpu: Metal на macOS). Для этого нужна сборка с фичей `gpu` и ключ `analyzer.gpu: true` в конфиге (или `ANALYZER_GPU=true`):
 
 ```bash
-CONFIG_DIR=../back/src ANALYZER_GPU=true cargo run --release --features gpu
+ANALYZER_GPU=true cargo run --release --features gpu
 ```
 
 Видеокарта не умеет f64, поэтому она только отбирает кандидатов, с запасом на погрешность f32. Каждого кандидата CPU пересчитывает точно, так что результат тот же, что у перебора на CPU. Если GPU недоступен, перебор идёт на CPU, а в консоль пишется причина.
@@ -42,7 +42,7 @@ GOLDEN_OUT=$PWD/../../back-rs/tests/fixtures/golden.json go test ./analyzer -run
 Синк в живой ClickHouse пишет во временную таблицу и сравнивает результат с основной:
 
 ```bash
-CONFIG_DIR=../back/src cargo test --release --test clickhouse -- --ignored --nocapture
+cargo test --release --test clickhouse -- --ignored --nocapture
 ```
 
 Сравнение API двух запущенных серверов:

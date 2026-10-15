@@ -1,9 +1,12 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"indicator"
 	"math"
+	"os"
+	"path/filepath"
 	"source"
 
 	"github.com/ilyakaznacheev/cleanenv"
@@ -64,16 +67,45 @@ type RangeConfig struct {
 	Step  float64
 }
 
+// Dir возвращает каталог с config.yaml и config_{PAIR}.yaml: CONFIG_DIR, а если он не задан —
+// ближайший каталог configs/ с config.yaml вверх от текущего.
+func Dir() (string, error) {
+	if dir := os.Getenv("CONFIG_DIR"); dir != "" {
+		return dir, nil
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for d := wd; ; {
+		candidate := filepath.Join(d, "configs")
+		if st, err := os.Stat(filepath.Join(candidate, "config.yaml")); err == nil && !st.IsDir() {
+			return candidate, nil
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return "", errors.New("configs/config.yaml not found in " + wd + " or its parents; set CONFIG_DIR")
+		}
+		d = parent
+	}
+}
+
 func Init() *Config {
 	var config Config
 
-	err := cleanenv.ReadConfig("config.yaml", &config)
+	dir, err := Dir()
+	if err != nil {
+		panic(err)
+	}
+
+	err = cleanenv.ReadConfig(filepath.Join(dir, "config.yaml"), &config)
 	if err != nil {
 		panic(err)
 	}
 
 	if config.Analyzer.Pair != "" {
-		pairConfigPath := fmt.Sprintf("config_%s.yaml", config.Analyzer.Pair)
+		pairConfigPath := filepath.Join(dir, fmt.Sprintf("config_%s.yaml", config.Analyzer.Pair))
 		err = cleanenv.ReadConfig(pairConfigPath, &config)
 		if err != nil {
 			panic(err)
