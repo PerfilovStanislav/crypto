@@ -1,13 +1,14 @@
+#  + 227.31% ( 41)   2.09% ( 97)  [pr/dd:109.00  pr/cnd:0.3919]  ind1:[     ema   H  0.32]  ind2:[     ema  OC  0.65]  tp:1169  sl:226  http://localhost/?tf=4h&tp=1169&sl=226&i1=ema,0.32,H&i2=ema,0.65,OC
 analyzer:
-  decimals: 3
+  decimals: 4
   takeprofit:
-    start: 10
-    end: 150
-    step: 2
+    start: 1000
+    end: 2000
+    step: 20
   stoploss:
-    start: 8
-    end: 30
-    step: 2
+    start: 100
+    end: 3500
+    step: 20
 
   indicators:
     # 1-ая группа индикаторов

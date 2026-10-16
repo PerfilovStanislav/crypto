@@ -17,6 +17,7 @@ http:
 
 analyzer:
   active: true              # запускать перебор стратегий (false — только синк свечей и HTTP API)
+  gpu: true
   threads: 7
   timeframe: "4h"
   pair: "SOLUSDT"

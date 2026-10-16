@@ -130,7 +130,7 @@ func (s *Server) getQuotes(w http.ResponseWriter, body []byte) error {
 	tp := req.Takeprofit
 	sl := req.Stoploss
 	if s.az.Cfg.Decimals > 0 {
-		factor := math.Pow10(int(s.az.Cfg.Decimals))
+		factor := math.Pow10(s.az.Cfg.Decimals)
 		tp /= factor
 		sl /= factor
 	}

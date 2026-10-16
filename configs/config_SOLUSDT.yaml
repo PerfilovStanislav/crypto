@@ -1,13 +1,13 @@
 analyzer:
-  decimals: 2
+  decimals: 3
   takeprofit:
-    start: 900
-    end: 1500
-    step: 10
+    start: 9000
+    end: 30000
+    step: 100
   stoploss:
-    start: 500
-    end: 1500
-    step: 10
+    start: 5000
+    end: 30000
+    step: 100
 
   indicators:
     # 1-ая группа индикаторов
