@@ -1,6 +1,7 @@
 pub mod analyzer;
 pub mod bybit;
 pub mod config;
+pub mod fan;
 pub mod indicator;
 pub mod logger;
 pub mod server;

@@ -9,6 +9,7 @@ use tracing::{error, info};
 
 use crypto_back::analyzer::Analyzer;
 use crypto_back::config::Config;
+use crypto_back::fan::FanBoost;
 use crypto_back::storage::{self, Db};
 use crypto_back::timeframe::Timeframe;
 use crypto_back::{logger, server};
@@ -67,6 +68,16 @@ async fn run() -> Result<()> {
         .then(|| tokio::spawn(server::serve(az.clone(), cfg.http.port, shutdown.clone())));
 
     if cfg.analyzer.active {
+        // Держит заданные обороты, пока жив; `fan auto` — при выходе из этого блока.
+        let rpm = cfg.analyzer.fan_speed;
+        let _fans = (rpm > 0).then(|| {
+            FanBoost::start(rpm)
+                .inspect_err(|e| {
+                    println!("fan control unavailable: {e:#}");
+                    error!(error = %format!("{e:#}"), "fan control unavailable");
+                })
+                .ok()
+        });
         let start = Instant::now();
         let (az_run, stop_run) = (az.clone(), stop.clone());
         tokio::task::spawn_blocking(move || az_run.run(&stop_run)).await??;
