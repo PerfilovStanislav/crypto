@@ -9,9 +9,16 @@ Rust-версия `back/`. Делает то же, что Go-версия:
 
 Конфиги общие с Go: `config.yaml` и `config_{PAIR}.yaml` в каталоге `configs/` рядом с `back/` и `back-rs/`. `config.yaml` с паролем к базе не хранится в git, шаблон — `configs/config.yaml.example`. Каталог ищется вверх от текущего, а `CONFIG_DIR` задаёт его явно.
 
+Проще всего через `make` из `back-rs/` (`make` без аргументов покажет все команды):
+
 ```bash
-cargo run --release
+make gpu      # перебор на GPU
+make cpu      # перебор на CPU
+make server   # только синк свечей и HTTP API для фронта
+make run      # как в configs/config.yaml
 ```
+
+Бинарник пересобирается, только если изменился код. По умолчанию используется профиль `fast`: пересборка занимает секунды, а перебор на CPU медленнее примерно на 5%, на GPU разницы нет. `make gpu PROFILE=release` собирает с полной оптимизацией (fat LTO), но пересборка идёт около 50 с. Без `make` это `cargo run --profile fast --features gpu`. Важно всегда собирать с одним и тем же набором фич, иначе cargo пересобирает заново.
 
 Перебор стратегий запускается, только если в конфиге `analyzer.active: true` (или `ANALYZER_ACTIVE=true`). Иначе приложение докачивает свечи и, если включён `http.active`, отдаёт API фронту.
 

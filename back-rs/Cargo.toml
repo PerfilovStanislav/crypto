@@ -58,3 +58,12 @@ debug = 1
 
 [profile.bench]
 inherits = "release"
+
+# Быстрая пересборка (секунды вместо ~50 с у release): без LTO, параллельная кодогенерация,
+# инкрементальная сборка. Перебор на CPU медленнее на ~5%, на GPU разницы нет.
+[profile.fast]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true
+debug = 0
