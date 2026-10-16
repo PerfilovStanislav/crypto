@@ -8,6 +8,7 @@ mod fast;
 mod format;
 #[cfg(feature = "gpu")]
 pub mod gpu;
+mod refine;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -22,6 +23,7 @@ pub use fast::{
     evaluate_trades, fill_signal_bits, scout, scout_interleaved, signal_weights, signal_words,
     ColdOutcome, HotOutcome, Outcomes,
 };
+pub use refine::{Refined, Refinement, Span, MAX_REFINE_ROUNDS};
 
 use crate::config::{AnalyzerConfig, RangeConfig};
 use crate::indicator::IndicatorType;
@@ -162,40 +164,68 @@ impl Analyzer {
         all >= self.cfg.min_signals && recent >= self.cfg.min_signals_last_months
     }
 
+    /// Сетка из конфига: индикаторы и TP/SL с теми же шагами, что в Go.
     pub fn prepare(&self) -> Result<Grid> {
+        let mut groups = Vec::with_capacity(self.cfg.indicators.len());
+        for group in &self.cfg.indicators {
+            let mut params = Vec::new();
+            for ind in group {
+                for &source in &ind.sources {
+                    for coef in float_range(ind.coefs)? {
+                        params.push(IndicatorParams {
+                            kind: ind.kind,
+                            source,
+                            coef,
+                        });
+                    }
+                }
+            }
+            groups.push(params);
+        }
+
+        let tps: Vec<f64> = float_range(self.cfg.takeprofit)?.collect();
+        let sls: Vec<f64> = float_range(self.cfg.stoploss)?.collect();
+        // Как в Go: по росту SL идём, пока набирается minCloses тейк-профитов.
+        let tp_sl: Vec<TpSlParam> = tps
+            .par_iter()
+            .flat_map_iter(|&tp| {
+                sls.iter()
+                    .map(move |&sl| TpSlParam { tp, sl })
+                    .take_while(|&p| has_enough_closes(&self.quotes, p, self.cfg.min_closes))
+            })
+            .collect();
+
+        Ok(self.prepare_grid(&groups, tp_sl))
+    }
+
+    /// Сетка из явных списков: группы индикаторов (пары строятся между соседними группами)
+    /// и TP/SL.
+    pub fn prepare_grid(&self, groups: &[Vec<IndicatorParams>], tp_sl: Vec<TpSlParam>) -> Grid {
         let mut grid = Grid {
             weights: signal_weights(self.ln),
             ..Grid::default()
         };
-        self.fill_indicator_params(&mut grid)?;
-        self.fill_tp_sl(&mut grid)?;
+        self.fill_indicator_params(&mut grid, groups);
+        self.fill_tp_sl(&mut grid, tp_sl);
         self.fill_compares(&mut grid);
-        Ok(grid)
+        grid
     }
 
-    fn fill_indicator_params(&self, grid: &mut Grid) -> Result<()> {
+    fn fill_indicator_params(&self, grid: &mut Grid, groups: &[Vec<IndicatorParams>]) {
         // Go-версия держала map[IndicatorParams]; ключ с f64 заменён на биты coef.
         let mut index: HashMap<(IndicatorType, SourceType, u64), usize> = HashMap::new();
-
-        for group in &self.cfg.indicators {
-            let mut ids = Vec::new();
-            for ind in group {
-                for &source in &ind.sources {
-                    for coef in float_range(ind.coefs)? {
-                        let id = *index
-                            .entry((ind.kind, source, coef.to_bits()))
-                            .or_insert_with(|| {
-                                grid.params.push(IndicatorParams {
-                                    kind: ind.kind,
-                                    source,
-                                    coef,
-                                });
-                                grid.params.len() - 1
-                            });
-                        ids.push(id);
-                    }
-                }
-            }
+        for group in groups {
+            let ids = group
+                .iter()
+                .map(|p| {
+                    *index
+                        .entry((p.kind, p.source, p.coef.to_bits()))
+                        .or_insert_with(|| {
+                            grid.params.push(*p);
+                            grid.params.len() - 1
+                        })
+                })
+                .collect();
             grid.groups.push(ids);
         }
 
@@ -210,23 +240,9 @@ impl Analyzer {
             .par_iter()
             .map(|p| p.kind.calculate(&source_prices[&p.source], p.coef))
             .collect();
-        Ok(())
     }
 
-    fn fill_tp_sl(&self, grid: &mut Grid) -> Result<()> {
-        let tps: Vec<f64> = float_range(self.cfg.takeprofit)?.collect();
-        let sls: Vec<f64> = float_range(self.cfg.stoploss)?.collect();
-
-        // Как в Go: по росту SL идём, пока набирается minCloses тейк-профитов.
-        let params: Vec<TpSlParam> = tps
-            .par_iter()
-            .flat_map_iter(|&tp| {
-                sls.iter()
-                    .map(move |&sl| TpSlParam { tp, sl })
-                    .take_while(|&p| has_enough_closes(&self.quotes, p, self.cfg.min_closes))
-            })
-            .collect();
-
+    fn fill_tp_sl(&self, grid: &mut Grid, params: Vec<TpSlParam>) {
         grid.tp_sl = params
             .into_par_iter()
             .map(|p| {
@@ -234,7 +250,6 @@ impl Analyzer {
                 (p, Outcomes::from_closings(&closes))
             })
             .collect();
-        Ok(())
     }
 
     fn fill_compares(&self, grid: &mut Grid) {
@@ -344,7 +359,20 @@ impl Analyzer {
         on_best: &(dyn Fn(&TaskResult) + Sync),
         on_progress: &(dyn Fn(usize, usize) + Sync),
     ) -> Option<TaskResult> {
-        let tracker = Tracker::new(self, grid, on_best);
+        self.search_above(grid, stop, 0.0, on_best, on_progress)
+    }
+
+    /// [`Analyzer::search`], но учитываются только результаты с `weighted_profit_to_dd`
+    /// строго больше `floor`; `None` — таких нет.
+    pub fn search_above(
+        &self,
+        grid: &Grid,
+        stop: &AtomicBool,
+        floor: f64,
+        on_best: &(dyn Fn(&TaskResult) + Sync),
+        on_progress: &(dyn Fn(usize, usize) + Sync),
+    ) -> Option<TaskResult> {
+        let tracker = Tracker::new(self, grid, on_best, floor);
         let completed = AtomicUsize::new(0);
         let total = grid.compares.len();
 
@@ -378,7 +406,7 @@ impl Analyzer {
         tracing::info!(adapter = %gpu.adapter, "GPU scout ready");
         println!("GPU: {}", gpu.adapter);
 
-        let tracker = Tracker::new(self, grid, on_best);
+        let tracker = Tracker::new(self, grid, on_best, 0.0);
         let total = grid.compares.len();
         let mut done = 0;
         let mut bits: Vec<u64> = Vec::new();
@@ -512,20 +540,62 @@ impl Analyzer {
             };
 
             let on_best = |r: &TaskResult| println!("{r}");
-            if self.cfg.gpu {
-                #[cfg(feature = "gpu")]
-                match self.search_gpu(&grid, stop, &on_best, &progress) {
-                    Ok(best) => return Ok(best),
-                    Err(e) => {
-                        tracing::warn!(error = %format!("{e:#}"), "GPU unavailable, searching on CPU");
-                        println!("GPU unavailable ({e:#}), searching on CPU");
-                    }
-                }
-                #[cfg(not(feature = "gpu"))]
-                bail!("analyzer.gpu requires a build with `--features gpu`");
+            let best = self.search_main(&grid, stop, &on_best, &progress)?;
+            drop(grid);
+
+            let Some(best) = best else {
+                return Ok(None);
+            };
+            if stop.load(Ordering::Relaxed) {
+                return Ok(Some(best));
             }
-            Ok(self.search(&grid, stop, &on_best, &progress))
+
+            // Тот же перебор на мелкой сетке вокруг лучшей стратегии (всегда на CPU: сетка мала),
+            // пока лучшее значение оказывается на краю сетки.
+            let on_round = |round: usize, r: &Refinement, grid: &Grid, edges: &[&str]| {
+                if !edges.is_empty() {
+                    println!(
+                        "best is at the edge of the grid ({}), refining again",
+                        edges.join(", ")
+                    );
+                }
+                println!("Refine #{round}: {r}");
+                println!("Jobs:{}", grid.compares.len() * grid.tp_sl.len());
+                println!("{}", format::header());
+            };
+            let refined = self.refine(best, stop, &on_best, &on_round)?;
+            if !refined.edges.is_empty() {
+                println!(
+                    "best is still at the edge of the grid ({}) after {} refinement rounds",
+                    refined.edges.join(", "),
+                    refined.rounds
+                );
+            }
+            Ok(Some(refined.best))
         })
+    }
+
+    /// Основной перебор: на GPU, если он включён и доступен, иначе на CPU.
+    fn search_main(
+        &self,
+        grid: &Grid,
+        stop: &AtomicBool,
+        on_best: &(dyn Fn(&TaskResult) + Sync),
+        on_progress: &(dyn Fn(usize, usize) + Sync),
+    ) -> Result<Option<TaskResult>> {
+        if self.cfg.gpu {
+            #[cfg(feature = "gpu")]
+            match self.search_gpu(grid, stop, on_best, on_progress) {
+                Ok(best) => return Ok(best),
+                Err(e) => {
+                    tracing::warn!(error = %format!("{e:#}"), "GPU unavailable, searching on CPU");
+                    println!("GPU unavailable ({e:#}), searching on CPU");
+                }
+            }
+            #[cfg(not(feature = "gpu"))]
+            bail!("analyzer.gpu requires a build with `--features gpu`");
+        }
+        Ok(self.search(grid, stop, on_best, on_progress))
     }
 }
 
@@ -645,12 +715,13 @@ impl<'a> Tracker<'a> {
         analyzer: &'a Analyzer,
         grid: &'a Grid,
         on_best: &'a (dyn Fn(&TaskResult) + Sync),
+        floor: f64,
     ) -> Self {
         Self {
             analyzer,
             grid,
             on_best,
-            max_bits: AtomicU64::new(0f64.to_bits()),
+            max_bits: AtomicU64::new(floor.to_bits()),
             best: Mutex::new(None),
         }
     }

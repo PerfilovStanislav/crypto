@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use super::{IndicatorParams, Task, TaskResult};
+use super::{IndicatorParams, Refinement, Span, Task, TaskResult};
 
 const WHITE: u8 = 37;
 const HI_RED: u8 = 91;
@@ -144,6 +144,37 @@ impl fmt::Display for TaskResult {
             clr(&fmt_f(m.profit_to_candles, 6, 4), HI_YELLOW),
             self.task,
             self.task.url(),
+        )
+    }
+}
+
+impl fmt::Display for Refinement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Значения вида 1.2000000000000002 — следствие арифметики f64, печатаем по-человечески.
+        let tidy = |v: f64| fmt_g((v * 1e6).round() / 1e6);
+        let span = |s: &Span, scale: f64| {
+            format!(
+                "{}..{} step {}",
+                tidy(s.start() * scale),
+                tidy(s.end() * scale),
+                tidy(s.step * scale)
+            )
+        };
+        write!(
+            f,
+            "{}[{} {} {}]  {}[{} {} {}]  {}{}  {}{}",
+            clr("ind1:", WHITE),
+            clr(&format!("{:>8}", self.ind1.kind), HI_MAGENTA),
+            self.ind1.source,
+            clr(&span(&self.coefs1, 1.0), HI_CYAN),
+            clr("ind2:", WHITE),
+            clr(&format!("{:>8}", self.ind2.kind), HI_MAGENTA),
+            self.ind2.source,
+            clr(&span(&self.coefs2, 1.0), HI_CYAN),
+            clr("tp:", WHITE),
+            clr(&span(&self.tp, self.price_factor), HI_GREEN),
+            clr("sl:", WHITE),
+            clr(&span(&self.sl, self.price_factor), HI_RED),
         )
     }
 }

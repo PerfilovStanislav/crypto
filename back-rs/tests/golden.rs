@@ -499,3 +499,76 @@ fn gpu_candidates_cover_exact_passes() {
         (cpu.task.ind1, cpu.task.ind2, cpu.task.tp_sl)
     );
 }
+
+/// Уточнение: исходная лучшая стратегия входит в мелкую сетку точно, результат не хуже.
+#[test]
+fn refinement_keeps_and_improves_the_best() {
+    let Some(f) = load() else { return };
+    let quiet = |_: &TaskResult| {};
+    let stop = AtomicBool::new(false);
+    let best = f.az.search(&f.grid, &stop, &quiet, &|_, _| {}).unwrap();
+
+    let r = f.az.refinement(&best).unwrap();
+    let has = |values: &[f64], v: f64| values.iter().any(|x| x.to_bits() == v.to_bits());
+    assert!(has(&r.coefs1.values, best.task.ind1.coef));
+    assert!(has(&r.coefs2.values, best.task.ind2.coef));
+    assert!(has(&r.tp.values, best.task.tp_sl.tp));
+    assert!(has(&r.sl.values, best.task.tp_sl.sl));
+
+    let grid = f.az.prepare_grid(&r.groups(), f.az.refinement_tp_sl(&r));
+    let refined = f.az.search(&grid, &stop, &quiet, &|_, _| {}).unwrap();
+    eprintln!(
+        "refine: {} pairs x {} tp/sl, weighted pr/dd {} -> {}",
+        grid.compares.len(),
+        grid.tp_sl.len(),
+        best.metrics.weighted_profit_to_dd,
+        refined.metrics.weighted_profit_to_dd
+    );
+    assert!(refined.metrics.weighted_profit_to_dd >= best.metrics.weighted_profit_to_dd);
+
+    // Повтор раундов: не хуже одного раунда; края остаются, только если кончились раунды.
+    let rounds = std::cell::Cell::new(0);
+    let done =
+        f.az.refine(best, &stop, &quiet, &|n, _, _, _| rounds.set(n))
+            .unwrap();
+    eprintln!(
+        "refine loop: {} rounds, weighted pr/dd {}, edges {:?}",
+        done.rounds, done.best.metrics.weighted_profit_to_dd, done.edges
+    );
+    assert_eq!(rounds.get(), done.rounds);
+    assert!(done.best.metrics.weighted_profit_to_dd >= refined.metrics.weighted_profit_to_dd);
+    assert!(done.edges.is_empty() || done.rounds == crypto_back::analyzer::MAX_REFINE_ROUNDS);
+}
+
+/// Старт уточнения в стороне от оптимума: лучшее значение упирается в край сетки,
+/// и раунды повторяются, сдвигая сетку, пока край не перестанет быть лучшим.
+#[test]
+fn refinement_follows_the_edge() {
+    let Some(f) = load() else { return };
+    let quiet = |_: &TaskResult| {};
+    let stop = AtomicBool::new(false);
+    let best = f.az.search(&f.grid, &stop, &quiet, &|_, _| {}).unwrap();
+
+    let mut start = best.clone();
+    start.task.tp_sl.tp -= 3.0 * f.golden.config.takeprofit.step;
+    start.metrics.weighted_profit_to_dd = 0.0;
+
+    let edges_seen = std::cell::RefCell::new(Vec::new());
+    let done =
+        f.az.refine(start, &stop, &quiet, &|_, _, _, edges| {
+            edges_seen
+                .borrow_mut()
+                .extend(edges.iter().map(|e| e.to_string()))
+        })
+        .unwrap();
+    eprintln!(
+        "follow edge: {} rounds, edges {:?}, weighted pr/dd {} (main best {})",
+        done.rounds,
+        edges_seen.borrow(),
+        done.best.metrics.weighted_profit_to_dd,
+        best.metrics.weighted_profit_to_dd
+    );
+    assert!(done.rounds >= 2, "the shifted start must hit the grid edge");
+    assert!(edges_seen.borrow().iter().any(|e| e == "tp"));
+    assert!(done.edges.is_empty());
+}
