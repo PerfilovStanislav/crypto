@@ -16,6 +16,12 @@ type BybitConfig struct {
 	BaseURL string `yaml:"base_url"`
 }
 
+// TelegramConfig is optional: without a token the bot sends no notifications.
+type TelegramConfig struct {
+	Token  string `yaml:"token"`
+	ChatID string `yaml:"chat_id"`
+}
+
 type DBConfig struct {
 	Host     string `yaml:"host"`
 	Port     int    `yaml:"port"`
@@ -49,6 +55,7 @@ type StrategyConfig struct {
 type Config struct {
 	Bybit      BybitConfig      `yaml:"bybit"`
 	DB         DBConfig         `yaml:"db"`
+	Telegram   TelegramConfig   `yaml:"telegram"`
 	Strategies []StrategyConfig `yaml:"strategies"`
 }
 
@@ -73,6 +80,9 @@ func Load(path string) (*Config, error) {
 func (c *Config) Validate() error {
 	if len(c.Strategies) == 0 {
 		return fmt.Errorf("no strategies configured")
+	}
+	if (c.Telegram.Token == "") != (c.Telegram.ChatID == "") {
+		return fmt.Errorf("telegram: set both token and chat_id, or neither")
 	}
 
 	// The bot treats the whole base coin balance as the strategy's position,

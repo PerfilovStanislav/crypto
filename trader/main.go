@@ -11,6 +11,7 @@ import (
 	"trader/config"
 	"trader/db"
 	"trader/exchange"
+	"trader/telegram"
 )
 
 func main() {
@@ -30,7 +31,7 @@ func main() {
 
 	bybitClient := exchange.NewClient(cfg.Bybit)
 
-	b := bot.New(cfg, dbClient, bybitClient)
+	b := bot.New(cfg, dbClient, bybitClient, telegram.New(cfg.Telegram))
 
 	// Graceful shutdown
 	go func() {

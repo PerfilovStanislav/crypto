@@ -8,6 +8,13 @@ bybit:
   # Optional, default https://api.bybit.com. Testnet: https://api-testnet.bybit.com
   # base_url: "https://api-testnet.bybit.com"
 
+# Optional: a message to this chat on every entry and when an entry fails after
+# the buy. Token from @BotFather; chat_id: write to the bot, then open
+# https://api.telegram.org/bot<token>/getUpdates and take message.chat.id.
+# telegram:
+#   token: "123456:ABC..."
+#   chat_id: "123456789"
+
 db:
   host: "127.0.0.1"
   port: 8123 # 8123 = HTTP, anything else = native protocol

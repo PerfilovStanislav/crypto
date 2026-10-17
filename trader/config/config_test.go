@@ -20,6 +20,7 @@ func TestExampleConfigIsValid(t *testing.T) {
 
 func TestValidate(t *testing.T) {
 	const valid = `
+telegram: {token: "1:abc", chat_id: "42"}
 strategies:
   - symbol: SOLUSDT
     timeframe: 4h
@@ -41,6 +42,8 @@ strategies:
 		{"unknown type", "type: ema", "type: wma", "unknown type"},
 		{"no stop loss", "stop_loss: 1500", "stop_loss: 0", "stop_loss"},
 		{"deposit over 100", "deposit_percent: 5", "deposit_percent: 150", "deposit_percent"},
+		{"telegram is optional", `telegram: {token: "1:abc", chat_id: "42"}`, "", ""},
+		{"telegram token without chat", `chat_id: "42"`, `chat_id: ""`, "telegram"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -61,7 +64,7 @@ strategies:
 		})
 	}
 
-	dup := valid + strings.TrimPrefix(valid, "\nstrategies:\n")
+	dup := valid + valid[strings.Index(valid, "  - symbol"):]
 	if _, err := Load(writeTemp(t, dup)); err == nil || !strings.Contains(err.Error(), "one strategy per symbol") {
 		t.Errorf("duplicate symbol: err = %v", err)
 	}

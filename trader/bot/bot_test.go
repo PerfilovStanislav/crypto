@@ -95,8 +95,15 @@ func (s *fakeStore) SaveCandles(ctx context.Context, candles []db.Candle) error 
 
 var testNow = time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 
+type fakeNotifier struct{ sent []string }
+
+func (n *fakeNotifier) Notify(text string) error {
+	n.sent = append(n.sent, text)
+	return nil
+}
+
 func newTestBot(ex Exchange, store CandleStore) *Bot {
-	b := New(&config.Config{}, store, ex)
+	b := New(&config.Config{}, store, ex, &fakeNotifier{})
 	b.now = func() time.Time { return testNow }
 	b.orderPoll = 0
 	b.orderRetries = 2
@@ -147,6 +154,11 @@ func TestTradeEntersWithSeparateStopOrders(t *testing.T) {
 	if !reflect.DeepEqual(ex.placed, want) {
 		t.Errorf("placed:\n%+v\nwant:\n%+v", ex.placed, want)
 	}
+
+	sent := b.notify.(*fakeNotifier).sent
+	if len(sent) != 1 || !strings.Contains(sent[0], "открыта сделка") || !strings.Contains(sent[0], "TP 170.12, SL 135.12") {
+		t.Errorf("notifications %q", sent)
+	}
 }
 
 func TestTradeWithoutSignalOnlyCleansUp(t *testing.T) {
@@ -176,6 +188,10 @@ func TestEnterRefusesAmountBelowMinimum(t *testing.T) {
 	if len(ex.placed) != 0 {
 		t.Errorf("placed %v", ex.placed)
 	}
+	// Nothing was bought: no message, or it would repeat on every candle.
+	if sent := b.notify.(*fakeNotifier).sent; len(sent) != 0 {
+		t.Errorf("notifications %q", sent)
+	}
 }
 
 func TestEnterRefusesNonPositiveStopLoss(t *testing.T) {
@@ -200,6 +216,9 @@ func TestEnterReportsUnprotectedPosition(t *testing.T) {
 	err := b.trade(strategy(sma5, sma2), true, 150)
 	if err == nil || !strings.Contains(err.Error(), "UNPROTECTED POSITION") {
 		t.Fatalf("err = %v", err)
+	}
+	if sent := b.notify.(*fakeNotifier).sent; len(sent) != 1 || !strings.Contains(sent[0], "UNPROTECTED POSITION") {
+		t.Errorf("notifications %q", sent)
 	}
 }
 

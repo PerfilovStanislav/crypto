@@ -28,6 +28,11 @@ type CandleStore interface {
 	SaveCandles(ctx context.Context, candles []db.Candle) error
 }
 
+// Notifier delivers messages to the user (Telegram).
+type Notifier interface {
+	Notify(text string) error
+}
+
 const (
 	klineLimit = 1000 // Bybit maximum per request
 
@@ -37,9 +42,10 @@ const (
 )
 
 type Bot struct {
-	cfg   *config.Config
-	store CandleStore
-	ex    Exchange
+	cfg    *config.Config
+	store  CandleStore
+	ex     Exchange
+	notify Notifier
 
 	now           func() time.Time
 	candlePoll    time.Duration // wait between attempts to get the closed candle
@@ -48,11 +54,12 @@ type Bot struct {
 	orderRetries  int
 }
 
-func New(cfg *config.Config, store CandleStore, ex Exchange) *Bot {
+func New(cfg *config.Config, store CandleStore, ex Exchange, notify Notifier) *Bot {
 	return &Bot{
 		cfg:           cfg,
 		store:         store,
 		ex:            ex,
+		notify:        notify,
 		now:           time.Now,
 		candlePoll:    time.Second,
 		candleRetries: 60,
@@ -254,8 +261,16 @@ func (b *Bot) cancelStaleExits(s config.StrategyConfig) error {
 // carry takeProfit/stopLoss on Bybit v5 (only Limit orders can), and both
 // exits use orderFilter=StopOrder because a tpslOrder locks the coins, so a
 // second one for the same coins would be rejected.
-func (b *Bot) enter(s config.StrategyConfig, inst exchange.Instrument, lastClose float64) error {
+func (b *Bot) enter(s config.StrategyConfig, inst exchange.Instrument, lastClose float64) (err error) {
 	decimals := *s.Decimals
+
+	// Once money has moved, a failure has to reach the user, not only the log.
+	bought := false
+	defer func() {
+		if bought && err != nil {
+			b.notifyf(s, "⚠️ %s %s: вход сорвался после покупки, проверьте позицию: %v", s.Symbol, s.Timeframe, err)
+		}
+	}()
 
 	// Refuse settings that can not work before any money moves.
 	if _, sl := TpSlPrices(lastClose, s.TakeProfit, s.StopLoss, decimals); sl <= 0 {
@@ -278,6 +293,7 @@ func (b *Bot) enter(s config.StrategyConfig, inst exchange.Instrument, lastClose
 	if err != nil {
 		return fmt.Errorf("market buy: %w", err)
 	}
+	bought = true
 
 	// The backtest enters at the next candle open, which is the market price
 	// right now; the actual average fill price is the closest equivalent.
@@ -314,7 +330,18 @@ func (b *Bot) enter(s config.StrategyConfig, inst exchange.Instrument, lastClose
 	}
 
 	b.logf(s, "Entered %s %s at %v: TP %s, SL %s", qty, inst.BaseCoin, entry, tpPrice, slPrice)
+	b.notifyf(s, "🟢 %s %s: открыта сделка\nкуплено %s %s по %v\nTP %s, SL %s", s.Symbol, s.Timeframe, qty, inst.BaseCoin, entry, tpPrice, slPrice)
 	return nil
+}
+
+// notifyf sends a message; a failed notification must never stop trading.
+func (b *Bot) notifyf(s config.StrategyConfig, format string, args ...any) {
+	if b.notify == nil {
+		return
+	}
+	if err := b.notify.Notify(fmt.Sprintf(format, args...)); err != nil {
+		b.logf(s, "Notification failed: %v", err)
+	}
 }
 
 // waitClosed polls until the order reaches a final status. A market order
