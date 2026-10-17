@@ -102,6 +102,8 @@ pub struct AnalyzerConfig {
     /// Обороты вентиляторов (об/мин) на время перебора: `sudo fan set N`, потом `fan auto`
     /// (см. `fan.rs`). 0 — вентиляторы не трогать.
     pub fan_speed: u32,
+    /// В перебор идут только TP/SL с TP ≥ N·SL. 0 — без ограничения.
+    pub min_tp_sl_ratio: f64,
     pub takeprofit: RangeConfig,
     pub stoploss: RangeConfig,
     pub indicators: Vec<Vec<IndicatorConfig>>,
@@ -228,6 +230,7 @@ fn apply_env(cfg: &mut Config) -> Result<()> {
         a.gpu = parse_bool(&v).context("ANALYZER_GPU")?;
     }
     env_parse("ANALYZER_FAN_SPEED", &mut a.fan_speed)?;
+    env_parse("ANALYZER_MIN_TP_SL_RATIO", &mut a.min_tp_sl_ratio)?;
     if let Some(v) = env_value("ANALYZER_ACTIVE") {
         a.active = parse_bool(&v).context("ANALYZER_ACTIVE")?;
     }

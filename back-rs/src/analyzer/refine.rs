@@ -205,6 +205,7 @@ impl Analyzer {
         r.tp.values
             .iter()
             .flat_map(|&tp| r.sl.values.iter().map(move |&sl| TpSlParam { tp, sl }))
+            .filter(|&p| self.tp_sl_allowed(p))
             .filter(|&p| has_enough_closes(&self.quotes, p, self.cfg.min_closes))
             .collect()
     }

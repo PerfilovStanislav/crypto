@@ -192,10 +192,18 @@ impl Analyzer {
                 sls.iter()
                     .map(move |&sl| TpSlParam { tp, sl })
                     .take_while(|&p| has_enough_closes(&self.quotes, p, self.cfg.min_closes))
+                    .filter(|&p| self.tp_sl_allowed(p))
             })
             .collect();
 
         Ok(self.prepare_grid(&groups, tp_sl))
+    }
+
+    /// Фильтр `minTpSlRatio`: TP не меньше N·SL. Допуск — на округление шагов сетки, чтобы
+    /// граница (например, TP 720 при SL 600 и N = 1.2) проходила.
+    fn tp_sl_allowed(&self, p: TpSlParam) -> bool {
+        let ratio = self.cfg.min_tp_sl_ratio;
+        ratio <= 0.0 || p.tp >= ratio * p.sl * (1.0 - 1e-9)
     }
 
     /// Сетка из явных списков: группы индикаторов (пары строятся между соседними группами)
@@ -922,6 +930,45 @@ mod tests {
             "earliest pair is kept"
         );
         assert_eq!(grid.params[dup.ind1].kind, IndicatorType::Dema);
+    }
+
+    #[test]
+    fn tp_sl_ratio_filter() {
+        let range = |start, end, step| RangeConfig { start, end, step };
+        let cfg = |ratio| AnalyzerConfig {
+            min_closes: 1,
+            min_tp_sl_ratio: ratio,
+            takeprofit: range(5.0, 15.0, 5.0),
+            stoploss: range(5.0, 15.0, 5.0),
+            ..Default::default()
+        };
+        // Каждая свеча выбивает любой TP до 15: has_enough_closes ничего не отсекает.
+        let n = 50;
+        let opens: Vec<f64> = (0..n).map(|i| 100.0 + i as f64).collect();
+        let quotes = Quotes {
+            timestamps: (0..n as i64).collect(),
+            highs: opens.iter().map(|o| o + 15.0).collect(),
+            lows: opens.iter().map(|o| o - 15.0).collect(),
+            closes: opens.clone(),
+            volumes: vec![1.0; n],
+            opens,
+        };
+        let pairs = |ratio| -> Vec<(f64, f64)> {
+            let az = Analyzer::with_cutoff_index(cfg(ratio), quotes.clone(), 0);
+            let mut v: Vec<_> = az
+                .prepare()
+                .unwrap()
+                .tp_sl
+                .iter()
+                .map(|(p, _)| (p.tp, p.sl))
+                .collect();
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            v
+        };
+        assert_eq!(pairs(0.0).len(), 9, "no ratio: every TP/SL");
+        assert_eq!(pairs(1.2), [(10.0, 5.0), (15.0, 5.0), (15.0, 10.0)]);
+        // Граница проходит: TP ровно 1.0·SL.
+        assert!(pairs(1.0).contains(&(10.0, 10.0)));
     }
 
     #[test]
