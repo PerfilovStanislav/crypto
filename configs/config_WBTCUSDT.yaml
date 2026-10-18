@@ -2,12 +2,12 @@
 analyzer:
   decimals: 1
   takeprofit:
-    start: 31200
-    end: 31800
+    start: 27200
+    end: 41000
     step: 100
   stoploss:
-    start: 23700
-    end: 24300
+    start: 13000
+    end: 27000
     step: 100
 
   indicators:

@@ -1,14 +1,14 @@
-#  +  77.75% ( 42)   1.07% (142)  [pr/dd:72.87  pr/cnd:0.0432]  ind1:[     sma  CH  3.00]  ind2:[    tema LOC  1.40]  tp:4049  sl:591  http://localhost/?tf=4h&tp=4049&sl=591&i1=sma,3,CH&i2=tema,1.4,LOC
+# 2h + 101.94% ( 44)   1.05% (130)  [pr/dd:97.52  pr/cnd:0.0347]  ind1:[    dema OCH  1.19]  ind2:[    tema LCH  0.71]  tp:3890  sl:581  http://localhost/?tf=2h&tp=3890&sl=581&i1=dema,1.19,OCH&i2=tema,0.71,LCH
 analyzer:
   decimals: 2
   takeprofit:
     start: 3000
-    end: 5000
-    step: 20
+    end: 4200
+    step: 25
   stoploss:
-    start: 200
-    end: 650
-    step: 20
+    start: 500
+    end: 850
+    step: 25
 
   indicators:
     # 1-ая группа индикаторов

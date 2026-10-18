@@ -1,13 +1,14 @@
+#+ 272.87% ( 46)  10.22% ( 30)  [pr/dd:26.69  pr/cnd:0.1650]  ind1:[    tema  LO  0.67]  ind2:[    dema   L  0.48]  tp:1286  sl:995  http://localhost/?tf=4h&tp=1286&sl=995&i1=tema,0.67,LO&i2=dema,0.48,L
 analyzer:
   decimals: 3
   takeprofit:
     start: 1000
     end: 4000
-    step: 100
+    step: 10
   stoploss:
     start: 1000
     end: 4000
-    step: 100
+    step: 10
 
   indicators:
     # 1-ая группа индикаторов

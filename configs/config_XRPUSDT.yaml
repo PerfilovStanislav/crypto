@@ -1,4 +1,4 @@
-#  + 227.31% ( 41)   2.09% ( 97)  [pr/dd:109.00  pr/cnd:0.3919]  ind1:[     ema   H  0.32]  ind2:[     ema  OC  0.65]  tp:1169  sl:226  http://localhost/?tf=4h&tp=1169&sl=226&i1=ema,0.32,H&i2=ema,0.65,OC
+# 4h + 227.31% ( 41)   2.09% ( 97)  [pr/dd:109.00  pr/cnd:0.3919]  ind1:[     ema   H  0.32]  ind2:[     ema  OC  0.65]  tp:1169  sl:226  http://localhost/?tf=4h&tp=1169&sl=226&i1=ema,0.32,H&i2=ema,0.65,OC
 analyzer:
   decimals: 4
   takeprofit:

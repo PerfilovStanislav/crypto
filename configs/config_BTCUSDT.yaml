@@ -1,14 +1,14 @@
-#+  84.80% ( 44)   1.28% ( 89)  [pr/dd:66.32  pr/cnd:0.0665]  ind1:[    dema   H  1.40]  ind2:[    tema  LH  0.54]  tp:38952  sl:8093  http://localhost/?tf=4h&tp=38952&sl=8093&i1=dema,1.4,H&i2=tema,0.54,LH
+## 1h + 143.62% ( 41)   1.92% ( 69)  [pr/dd:74.62  pr/cnd:0.0227]  ind1:[    dema  CH  1.17]  ind2:[     ema   L  1.38]  tp:47851  sl:11532  http://localhost/?tf=1h&tp=47851&sl=11532&i1=dema,1.17,CH&i2=ema,1.38,L
 analyzer:
   decimals: 1
   takeprofit:
-    start: 3000
-    end: 70000
-    step: 200
+    start: 30000
+    end: 50000
+    step: 500
   stoploss:
-    start: 3000
-    end: 70000
-    step: 200
+    start: 5000
+    end: 20000
+    step: 500
 
   indicators:
     # 1-ая группа индикаторов

@@ -365,9 +365,7 @@ func (a *Analyzer) fillIndicatorsCompares() {
 	var mu sync.Mutex
 
 	for w := 0; w < a.Cfg.Threads; w++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for {
 				idx := atomic.AddInt64(&index, 1) - 1
 				if idx >= numJobs {
@@ -384,7 +382,7 @@ func (a *Analyzer) fillIndicatorsCompares() {
 					mu.Unlock()
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }

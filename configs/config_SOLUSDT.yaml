@@ -1,13 +1,14 @@
+# 4h + 404.54% ( 46)   7.54% ( 35)  [pr/dd:53.63  pr/cnd:0.2756]  ind1:[    tema   O  1.32]  ind2:[     ema   L  0.76]  tp:10310  sl:6090  http://localhost/?tf=4h&tp=10310&sl=6090&i1=tema,1.32,O&i2=ema,0.76,L
 analyzer:
   decimals: 3
   takeprofit:
     start: 9000
-    end: 30000
-    step: 100
+    end: 13000
+    step: 75
   stoploss:
     start: 5000
-    end: 30000
-    step: 100
+    end: 8000
+    step: 75
 
   indicators:
     # 1-ая группа индикаторов
