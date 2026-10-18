@@ -1,0 +1,225 @@
+#+ 169.22% (103)   2.68% ( 87)  [pr/dd:63.20  pr/cnd:0.0551]  ind1:[    dema   C  0.50]  ind2:[    tema  LC  0.29]  tp:90  sl:56  http://localhost/?tf=4h&tp=90&sl=56&i1=dema,0.5,C&i2=tema,0.29,LC
+analyzer:
+  decimals: 4
+  takeprofit:
+    start: 2
+    end: 200
+    step: 2
+  stoploss:
+    start: 2
+    end: 200
+    step: 2
+
+  indicators:
+    # 1-ая группа индикаторов
+    -
+      - type: sma
+        coefs:
+          start: 3.0
+          end: 15.0
+          step: 1.0
+        sources:
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
+
+      - type: ema
+        coefs:
+          start: 0.2
+          end: 1.5
+          step: 0.1
+        sources:
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
+      - type: dema
+        coefs:
+          start: 0.2
+          end: 1.5
+          step: 0.1
+        sources:
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
+
+      - type: tema
+        coefs:
+          start: 0.2
+          end: 1.5
+          step: 0.1
+        sources:
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
+
+      - type: temaZero
+        coefs:
+          start: 0.2
+          end: 1.6
+          step: 0.1
+        sources:
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
+
+    # 2-ая группа индикаторов
+    -
+      - type: sma
+        coefs:
+          start: 3.0
+          end: 15.0
+          step: 1.0
+        sources:
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
+
+      - type: ema
+        coefs:
+          start: 0.2
+          end: 1.5
+          step: 0.1
+        sources:
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
+
+      - type: dema
+        coefs:
+          start: 0.2
+          end: 1.5
+          step: 0.1
+        sources:
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
+
+      - type: tema
+        coefs:
+          start: 0.2
+          end: 1.5
+          step: 0.1
+        sources:
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
+
+      - type: temaZero
+        coefs:
+          start: 0.2
+          end: 1.6
+          step: 0.1
+        sources:
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
