@@ -150,6 +150,10 @@ func parseTimeframeDuration(tf string) (time.Duration, error) {
 		return 2 * time.Hour, nil
 	case "4h":
 		return 4 * time.Hour, nil
+	case "6h":
+		return 6 * time.Hour, nil
+	case "12h":
+		return 12 * time.Hour, nil
 	case "1d":
 		return 24 * time.Hour, nil
 	}

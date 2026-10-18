@@ -139,6 +139,10 @@ func Interval(timeframe string) (string, error) {
 		return "120", nil
 	case "4h":
 		return "240", nil
+	case "6h":
+		return "360", nil
+	case "12h":
+		return "720", nil
 	case "1d":
 		return "D", nil
 	}

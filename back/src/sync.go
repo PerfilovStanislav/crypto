@@ -149,6 +149,10 @@ func timeframeDuration(tf string) time.Duration {
 		return time.Hour
 	case "4h":
 		return 4 * time.Hour
+	case "6h":
+		return 6 * time.Hour
+	case "12h":
+		return 12 * time.Hour
 	case "1d":
 		return 24 * time.Hour
 	case "1w":
@@ -202,6 +206,8 @@ var intervals = map[string]int{
 	"30m": 30,
 	"1h":  60,
 	"4h":  240,
+	"6h":  360,
+	"12h": 720,
 	"1d":  1440,
 	"1w":  10080,
 }

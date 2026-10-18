@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS default.market_data
         , '2h' = 7
         , '4h' = 8
         , '1d' = 9
+        , '6h' = 10
+        , '12h' = 11
     ),
     timestamp DateTime,
 

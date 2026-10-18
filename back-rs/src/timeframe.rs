@@ -18,6 +18,9 @@ pub enum Timeframe {
     H2 = 7,
     H4 = 8,
     D1 = 9,
+    // Добавлены позже: номера в Enum8 после 1d, чтобы не перенумеровать сохранённые свечи.
+    H6 = 10,
+    H12 = 11,
 }
 
 impl Timeframe {
@@ -31,6 +34,8 @@ impl Timeframe {
             Self::H1 => "1h",
             Self::H2 => "2h",
             Self::H4 => "4h",
+            Self::H6 => "6h",
+            Self::H12 => "12h",
             Self::D1 => "1d",
         }
     }
@@ -45,6 +50,8 @@ impl Timeframe {
             Self::H1 => 60,
             Self::H2 => 120,
             Self::H4 => 240,
+            Self::H6 => 360,
+            Self::H12 => 720,
             Self::D1 => 1440,
         };
         Duration::from_secs(minutes * 60)
@@ -61,6 +68,8 @@ impl Timeframe {
             Self::H1 => "60",
             Self::H2 => "120",
             Self::H4 => "240",
+            Self::H6 => "360",
+            Self::H12 => "720",
             Self::D1 => "D",
         }
     }
@@ -79,6 +88,8 @@ impl FromStr for Timeframe {
             "1h" => Self::H1,
             "2h" => Self::H2,
             "4h" => Self::H4,
+            "6h" => Self::H6,
+            "12h" => Self::H12,
             "1d" => Self::D1,
             _ => bail!("unsupported timeframe {s:?}"),
         })
