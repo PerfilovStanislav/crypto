@@ -176,8 +176,11 @@ func (b *Bot) processCandle(ctx context.Context, s config.StrategyConfig, expect
 	last := closed[len(closed)-1]
 	b.logf(s, "Candle %v closed at %v", last.Timestamp, last.Close)
 
-	if err := b.store.SaveCandles(ctx, []db.Candle{last}); err != nil {
-		b.logf(s, "Failed to save candle to DB: %v", err)
+	// Without a db section there is no store: signals come from Bybit candles anyway.
+	if b.store != nil {
+		if err := b.store.SaveCandles(ctx, []db.Candle{last}); err != nil {
+			b.logf(s, "Failed to save candle to DB: %v", err)
+		}
 	}
 
 	signal, err := Signal(closed, s)

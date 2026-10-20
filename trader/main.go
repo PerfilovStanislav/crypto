@@ -23,15 +23,20 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	dbClient, err := db.New(ctx, cfg.DB)
-	if err != nil {
-		log.Fatalf("Failed to connect to ClickHouse: %v", err)
+	// db is optional: candles are only archived there, the bot never reads them.
+	var store bot.CandleStore
+	if cfg.DB.Host != "" {
+		dbClient, err := db.New(ctx, cfg.DB)
+		if err != nil {
+			log.Fatalf("Failed to connect to ClickHouse: %v", err)
+		}
+		defer dbClient.Close()
+		store = dbClient
 	}
-	defer dbClient.Close()
 
 	bybitClient := exchange.NewClient(cfg.Bybit)
 
-	b := bot.New(cfg, dbClient, bybitClient, telegram.New(cfg.Telegram))
+	b := bot.New(cfg, store, bybitClient, telegram.New(cfg.Telegram))
 
 	// Graceful shutdown
 	go func() {

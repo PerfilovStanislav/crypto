@@ -264,6 +264,14 @@ func TestProcessCandleWaitsForRolloverThenTrades(t *testing.T) {
 		t.Fatalf("placed %+v, want buy + sl + tp", ex.placed)
 	}
 
+	// Without a db section the bot trades the same, only nothing is saved.
+	ex2 := newFakeExchange(t)
+	ex2.klines = all
+	noDB := newTestBot(ex2, nil)
+	if done, err := noDB.processCandle(context.Background(), s, expected); err != nil || !done || len(ex2.placed) != 3 {
+		t.Fatalf("without db: done=%v err=%v placed=%v", done, err, ex2.placed)
+	}
+
 	// Next candle: the signal still holds, but the position is open
 	ex.placed = nil
 	done, err = b.processCandle(context.Background(), s, expected) // same data, position now held
