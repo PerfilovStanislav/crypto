@@ -48,14 +48,15 @@ async fn run() -> Result<()> {
 
     let pair = cfg.analyzer.pair.as_str();
     let timeframe: Timeframe = cfg.analyzer.timeframe.parse()?;
+    let months = cfg.analyzer.history_months();
 
     tokio::select! {
-        res = storage::sync_market_data(&db, pair, timeframe) => res.context("market data sync failed")?,
+        res = storage::sync_market_data(&db, pair, timeframe, months) => res.context("market data sync failed")?,
         _ = shutdown.cancelled() => return Ok(()),
     }
 
     let quotes = db
-        .load_market_data(pair, timeframe)
+        .load_market_data(pair, timeframe, months)
         .await
         .context("failed to load market data")?;
     info!(candles = quotes.len(), "market data loaded");

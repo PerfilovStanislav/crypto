@@ -96,6 +96,8 @@ pub struct AnalyzerConfig {
     pub min_signals: usize,
     pub min_signals_last_months: usize,
     pub last_months_limit: u32,
+    /// За сколько месяцев истории перебирать стратегии (0 — по умолчанию, 24).
+    pub period_months: u32,
     pub min_take_profits: usize,
     /// Быстрый проход перебора на GPU (нужна сборка с `--features gpu`).
     pub gpu: bool,
@@ -125,6 +127,17 @@ pub struct RangeConfig {
     pub start: f64,
     pub end: f64,
     pub step: f64,
+}
+
+impl AnalyzerConfig {
+    /// `periodMonths` с подстановкой значения по умолчанию.
+    pub fn history_months(&self) -> u32 {
+        if self.period_months == 0 {
+            24
+        } else {
+            self.period_months
+        }
+    }
 }
 
 impl RangeConfig {
@@ -225,6 +238,7 @@ fn apply_env(cfg: &mut Config) -> Result<()> {
         &mut a.min_signals_last_months,
     )?;
     env_parse("ANALYZER_LAST_MONTHS_LIMIT", &mut a.last_months_limit)?;
+    env_parse("ANALYZER_PERIOD_MONTHS", &mut a.period_months)?;
     env_parse("ANALYZER_MIN_TAKE_PROFITS", &mut a.min_take_profits)?;
     if let Some(v) = env_value("ANALYZER_GPU") {
         a.gpu = parse_bool(&v).context("ANALYZER_GPU")?;

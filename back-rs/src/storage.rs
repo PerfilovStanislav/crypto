@@ -47,8 +47,9 @@ struct QuoteRow {
 }
 
 #[derive(Row, Deserialize)]
-struct MaxTimestamp {
-    timestamp: u32,
+struct TimeRange {
+    min: u32,
+    max: u32,
 }
 
 impl Db {
@@ -85,19 +86,20 @@ impl Db {
         &self.client
     }
 
-    async fn max_timestamp(&self, symbol: &str, timeframe: Timeframe) -> Result<u32> {
-        let row: MaxTimestamp = self
+    /// Самая старая и самая новая сохранённая свеча (обе 1970-01-01, если свечей нет).
+    async fn time_range(&self, symbol: &str, timeframe: Timeframe) -> Result<(u32, u32)> {
+        let row: TimeRange = self
             .client
             .query(&format!(
-                "SELECT max(timestamp) FROM {} WHERE symbol = ? AND timeframe = ?",
+                "SELECT min(timestamp), max(timestamp) FROM {} WHERE symbol = ? AND timeframe = ?",
                 self.table
             ))
             .bind(symbol)
             .bind(timeframe.as_str())
             .fetch_one()
             .await
-            .context("failed to query max timestamp")?;
-        Ok(row.timestamp)
+            .context("failed to query stored time range")?;
+        Ok((row.min, row.max))
     }
 
     async fn save_candles(
@@ -129,9 +131,14 @@ impl Db {
         Ok(())
     }
 
-    /// Свечи за последние 2 года по возрастанию времени.
-    pub async fn load_market_data(&self, symbol: &str, timeframe: Timeframe) -> Result<Quotes> {
-        let period = two_years_ago();
+    /// Свечи за последние `months` месяцев по возрастанию времени.
+    pub async fn load_market_data(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+        months: u32,
+    ) -> Result<Quotes> {
+        let period = months_ago(months);
         let rows: Vec<QuoteRow> = self
             .client
             .query(&format!(
@@ -160,9 +167,9 @@ impl Db {
     }
 }
 
-fn two_years_ago() -> DateTime<Utc> {
+fn months_ago(months: u32) -> DateTime<Utc> {
     let now = Utc::now();
-    now.checked_sub_months(Months::new(24)).unwrap_or(now)
+    now.checked_sub_months(Months::new(months)).unwrap_or(now)
 }
 
 fn fmt_ts(ms: i64) -> String {
@@ -171,23 +178,35 @@ fn fmt_ts(ms: i64) -> String {
         .unwrap_or_else(|| ms.to_string())
 }
 
-/// Докачивает в ClickHouse закрытые свечи, которых там ещё нет (или 2 года истории, если пусто).
-pub async fn sync_market_data(db: &Db, symbol: &str, timeframe: Timeframe) -> Result<()> {
-    let max_time = db.max_timestamp(symbol, timeframe).await?;
-    let max_time_ms = max_time as i64 * 1000;
-
-    let start_ms = if max_time < EMPTY_TABLE_THRESHOLD {
-        let start = two_years_ago().timestamp_millis();
-        info!(start_time = %fmt_ts(start), "no market data found in clickhouse, syncing full 2 years of history");
-        start
-    } else {
-        info!(max_time = %fmt_ts(max_time_ms), "found existing market data in clickhouse");
-        max_time_ms
-    };
-
-    let end_ms = Utc::now().timestamp_millis();
+/// Докачивает в ClickHouse закрытые свечи за последние `months` месяцев, которых там ещё нет:
+/// новые — после последней сохранённой, и старые — если сохранённая история короче периода.
+pub async fn sync_market_data(
+    db: &Db,
+    symbol: &str,
+    timeframe: Timeframe,
+    months: u32,
+) -> Result<()> {
+    let (min_time, max_time) = db.time_range(symbol, timeframe).await?;
+    let (min_ms, max_ms) = (min_time as i64 * 1000, max_time as i64 * 1000);
+    let want_ms = months_ago(months).timestamp_millis();
+    let now_ms = Utc::now().timestamp_millis();
     let tf_ms = timeframe.duration().as_millis() as i64;
-    if end_ms <= start_ms + 2 * tf_ms {
+
+    let mut ranges = Vec::new();
+    if max_time < EMPTY_TABLE_THRESHOLD {
+        info!(start_time = %fmt_ts(want_ms), months, "no market data found in clickhouse, syncing full history");
+        ranges.push((want_ms, now_ms));
+    } else {
+        info!(min_time = %fmt_ts(min_ms), max_time = %fmt_ts(max_ms), "found existing market data in clickhouse");
+        if min_ms > want_ms + tf_ms {
+            info!(start_time = %fmt_ts(want_ms), months, "stored history is shorter than the period, fetching older candles");
+            ranges.push((want_ms, min_ms - 1));
+        }
+        if now_ms > max_ms + 2 * tf_ms {
+            ranges.push((max_ms, now_ms));
+        }
+    }
+    if ranges.is_empty() {
         info!("market data is already up-to-date");
         return Ok(());
     }
@@ -195,30 +214,9 @@ pub async fn sync_market_data(db: &Db, symbol: &str, timeframe: Timeframe) -> Re
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .build()?;
-
-    let mut current_end_ms = end_ms;
     let mut raw_candles = Vec::new();
-    while current_end_ms > start_ms {
-        info!(end_time = %fmt_ts(current_end_ms), "fetching batch from bybit kline API...");
-        let batch = bybit::fetch_klines(&http, symbol, timeframe, start_ms, current_end_ms)
-            .await
-            .context("failed to fetch klines from bybit")?;
-        let Some(oldest) = batch.last() else {
-            break;
-        };
-        // Bybit отдаёт новые первыми, самая старая свеча — последняя.
-        let oldest_ms: i64 = oldest
-            .first()
-            .context("empty candle row")?
-            .parse()
-            .context("failed to parse oldest candle timestamp")?;
-        raw_candles.extend(batch);
-
-        if oldest_ms <= start_ms {
-            break;
-        }
-        current_end_ms = oldest_ms - 1;
-        tokio::time::sleep(Duration::from_millis(100)).await;
+    for (start_ms, end_ms) in ranges {
+        raw_candles.extend(fetch_range(&http, symbol, timeframe, start_ms, end_ms).await?);
     }
     info!(
         raw_count = raw_candles.len(),
@@ -234,9 +232,10 @@ pub async fn sync_market_data(db: &Db, symbol: &str, timeframe: Timeframe) -> Re
                 continue;
             }
         };
-        // Только свечи новее уже сохранённых и полностью закрытые.
+        // Только полностью закрытые свечи вне уже сохранённого диапазона — без повторов.
         let complete = candle.timestamp_ms + tf_ms <= Utc::now().timestamp_millis();
-        if candle.timestamp_ms > max_time_ms && complete {
+        let unseen = candle.timestamp_ms > max_ms || candle.timestamp_ms < min_ms;
+        if complete && unseen {
             to_insert.push(candle);
         }
     }
@@ -258,4 +257,39 @@ pub async fn sync_market_data(db: &Db, symbol: &str, timeframe: Timeframe) -> Re
         "successfully saved candles to clickhouse"
     );
     Ok(())
+}
+
+/// Все свечи Bybit в `[start_ms, end_ms]`: страницами по 1000 от новых к старым.
+async fn fetch_range(
+    http: &reqwest::Client,
+    symbol: &str,
+    timeframe: Timeframe,
+    start_ms: i64,
+    end_ms: i64,
+) -> Result<Vec<Vec<String>>> {
+    let mut current_end_ms = end_ms;
+    let mut raw_candles = Vec::new();
+    while current_end_ms > start_ms {
+        info!(end_time = %fmt_ts(current_end_ms), "fetching batch from bybit kline API...");
+        let batch = bybit::fetch_klines(http, symbol, timeframe, start_ms, current_end_ms)
+            .await
+            .context("failed to fetch klines from bybit")?;
+        let Some(oldest) = batch.last() else {
+            break;
+        };
+        // Bybit отдаёт новые первыми, самая старая свеча — последняя.
+        let oldest_ms: i64 = oldest
+            .first()
+            .context("empty candle row")?
+            .parse()
+            .context("failed to parse oldest candle timestamp")?;
+        raw_candles.extend(batch);
+
+        if oldest_ms <= start_ms {
+            break;
+        }
+        current_end_ms = oldest_ms - 1;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    Ok(raw_candles)
 }
