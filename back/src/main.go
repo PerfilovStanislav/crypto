@@ -32,6 +32,9 @@ func run() error {
 	runtime.ReadMemStats(&m)
 
 	cfg := config.Init()
+	if cfg.Analyzer.Active && cfg.Analyzer.Direction == "sell" {
+		return fmt.Errorf("analyzer.direction sell: the strategy search supports only buy for now")
+	}
 	log := logger.New(cfg.Log)
 
 	graceful := shutdown.New(log)

@@ -7,7 +7,12 @@ Rust-версия `back/`. Делает то же, что Go-версия:
 
 ## Запуск
 
-Конфиги общие с Go: `config.yaml` и `config_{PAIR}.yaml` в каталоге `configs/` рядом с `back/` и `back-rs/`. `config.yaml` с паролем к базе не хранится в git, шаблон — `configs/config.yaml.example`. Каталог ищется вверх от текущего, а `CONFIG_DIR` задаёт его явно.
+Конфиги общие с Go и лежат в каталоге `configs/` рядом с `back/` и `back-rs/`. Каталог ищется вверх от текущего, `CONFIG_DIR` задаёт его явно.
+
+- **`config.yaml`** — общие настройки: база, HTTP, `analyzer.pair`, `analyzer.direction` (`buy` или `sell`), потоки, GPU и т.п. С паролем к базе, поэтому не хранится в git; шаблон — `configs/config.yaml.example`.
+- **`<direction>/<PAIR>.yaml`** (например, `buy/ADAUSDT.yaml`) — настройки пары: `timeframe`, `decimals`, `minCloses`, `minSignals`, `minSignalsLastMonths`, `lastMonthsLimit`, `periodMonths`, `minTakeProfits`, сетки TP/SL и индикаторов.
+
+Перебор пока умеет только покупки. При `direction: sell` вместе с `analyzer.active` приложение сразу выходит с ошибкой.
 
 Проще всего через `make` из `back-rs/` (`make` без аргументов покажет все команды):
 

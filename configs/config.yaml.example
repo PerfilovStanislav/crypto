@@ -16,15 +16,9 @@ http:
   active: false
 
 analyzer:
+  direction: "buy"          # buy или sell: конфиги пар берутся из configs/<direction>/<PAIR>.yaml
   active: true              # запускать перебор стратегий (false — только синк свечей и HTTP API)
   gpu: true
   threads: 7
-  timeframe: "4h"
   pair: "SOLUSDT"
   commission: 0.0018
-  minCloses: 100            # минимальное кол-во takeprofits за весь период
-  minSignals: 70            # минимальное кол-во пересечений индикаторов
-  minSignalsLastMonths: 4   # минимальное кол-во пересечений индикаторов
-  lastMonthsLimit: 2        # за указаный период
-  periodMonths: 24          # период истории для перебора, месяцев (по умолчанию 24)
-  minTakeProfits: 40        # минимальное кол-во положительных сделок (takeprofits)

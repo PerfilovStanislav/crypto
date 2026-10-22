@@ -1,14 +1,21 @@
-# 2h + 101.94% ( 44)   1.05% (130)  [pr/dd:97.52  pr/cnd:0.0347]  ind1:[    dema OCH  1.19]  ind2:[    tema LCH  0.71]  tp:3890  sl:581  http://localhost/?tf=2h&tp=3890&sl=581&i1=dema,1.19,OCH&i2=tema,0.71,LCH
+# 4h + 227.31% ( 41)   2.09% ( 97)  [pr/dd:109.00  pr/cnd:0.3919]  ind1:[     ema   H  0.32]  ind2:[     ema  OC  0.65]  tp:1169  sl:226  http://localhost/?tf=4h&tp=1169&sl=226&i1=ema,0.32,H&i2=ema,0.65,OC
 analyzer:
-  decimals: 2
+  timeframe: "4h"
+  minCloses: 100            # минимальное кол-во takeprofits за весь период
+  minSignals: 70            # минимальное кол-во пересечений индикаторов
+  minSignalsLastMonths: 4   # минимальное кол-во пересечений индикаторов
+  lastMonthsLimit: 2        # за указаный период
+  periodMonths: 24          # период истории для перебора, месяцев (по умолчанию 24)
+  minTakeProfits: 40        # минимальное кол-во положительных сделок (takeprofits)
+  decimals: 4
   takeprofit:
-    start: 3000
-    end: 4200
-    step: 25
+    start: 1000
+    end: 2000
+    step: 20
   stoploss:
-    start: 500
-    end: 850
-    step: 25
+    start: 100
+    end: 3500
+    step: 20
 
   indicators:
     # 1-ая группа индикаторов

@@ -1,5 +1,5 @@
 //! Конфиг читается так же, как в Go-версии (cleanenv):
-//! значения по умолчанию → `config.yaml` → `config_{PAIR}.yaml` → переменные окружения.
+//! значения по умолчанию → `config.yaml` → `<direction>/<PAIR>.yaml` → переменные окружения.
 //! Каталог с конфигами — `CONFIG_DIR`, а если он не задан, ближайший `configs/` с `config.yaml`
 //! вверх от текущего (в репозитории это `configs/` рядом с `back/` и `back-rs/`).
 
@@ -85,6 +85,8 @@ impl Default for HttpConfig {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AnalyzerConfig {
+    /// Направление сделок; конфиг пары берётся из `<direction>/<PAIR>.yaml`.
+    pub direction: Direction,
     /// Запускать перебор стратегий. Без него работают только синк свечей и HTTP API.
     pub active: bool,
     pub threads: usize,
@@ -129,6 +131,35 @@ pub struct RangeConfig {
     pub step: f64,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Direction {
+    #[default]
+    Buy,
+    Sell,
+}
+
+impl Direction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Buy => "buy",
+            Self::Sell => "sell",
+        }
+    }
+}
+
+impl FromStr for Direction {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s {
+            "buy" => Ok(Self::Buy),
+            "sell" => Ok(Self::Sell),
+            _ => bail!("direction must be buy or sell, got {s:?}"),
+        }
+    }
+}
+
 impl AnalyzerConfig {
     /// `periodMonths` с подстановкой значения по умолчанию.
     pub fn history_months(&self) -> u32 {
@@ -162,7 +193,10 @@ impl Config {
         apply_env(&mut cfg)?;
 
         if !cfg.analyzer.pair.is_empty() {
-            let pair = existing(dir.join(format!("config_{}.yaml", cfg.analyzer.pair)))?;
+            let pair = existing(
+                dir.join(cfg.analyzer.direction.as_str())
+                    .join(format!("{}.yaml", cfg.analyzer.pair)),
+            )?;
             cfg = Figment::new()
                 .merge(Yaml::file(&base))
                 .merge(Yaml::file(&pair))
@@ -228,6 +262,7 @@ fn apply_env(cfg: &mut Config) -> Result<()> {
     let a = &mut cfg.analyzer;
     env_parse("ANALYZER_THREADS", &mut a.threads)?;
     env_parse("ANALYZER_PAIR", &mut a.pair)?;
+    env_parse("ANALYZER_DIRECTION", &mut a.direction)?;
     env_parse("ANALYZER_TIMEFRAME", &mut a.timeframe)?;
     env_parse("ANALYZER_COMMISSION", &mut a.commission)?;
     env_parse("ANALYZER_DECIMALS", &mut a.decimals)?;
@@ -314,6 +349,30 @@ mod tests {
         assert!(!load("analyzer:\n  threads: 1\n"), "off by default");
         assert!(load("analyzer:\n  active: true\n"));
         assert!(!load("analyzer:\n  active: false\n"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn pair_config_comes_from_direction_dir() {
+        let dir = env::temp_dir().join(format!("direction-test-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sell")).unwrap();
+        std::fs::write(
+            dir.join("config.yaml"),
+            "analyzer:\n  direction: sell\n  pair: XUSDT\n  timeframe: 1d\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("sell").join("XUSDT.yaml"),
+            "analyzer:\n  timeframe: 6h\n",
+        )
+        .unwrap();
+
+        let a = Config::load_from(&dir).unwrap().analyzer;
+        assert_eq!(a.direction, Direction::Sell);
+        assert_eq!(a.timeframe, "6h", "pair config overrides the main one");
+
+        std::fs::remove_dir_all(dir.join("sell")).unwrap();
+        assert!(Config::load_from(&dir).is_err(), "pair config is required");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

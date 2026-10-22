@@ -4,7 +4,7 @@
     ./strategy_from_line.py '+ 348.49% ( 41) ... ind1:[ dema C 1.09]  ind2:[ dema LC 1.19]  tp:305  sl:247'
     pbpaste | ./strategy_from_line.py
 
-symbol, timeframe, deposit_percent и decimals (из configs/config_<PAIR>.yaml) добавьте сами.
+symbol, timeframe, deposit_percent и decimals (из configs/buy/<PAIR>.yaml) добавьте сами.
 Проверка: python3 -m doctest strategy_from_line.py
 
 >>> print(to_yaml('+ 348.49% ( 41)   9.47% ( 24)  [pr/dd:36.81  pr/cnd:0.2599]  '

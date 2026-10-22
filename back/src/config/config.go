@@ -43,6 +43,7 @@ type AnalyzerConfig struct {
 	Active               bool                `yaml:"active" env:"ACTIVE"` // запускать перебор стратегий
 	Threads              int                 `yaml:"threads" env:"THREADS"`
 	Pair                 string              `yaml:"pair" env:"PAIR"`
+	Direction            string              `yaml:"direction" env:"DIRECTION" env-default:"buy"` // конфиг пары: <direction>/<PAIR>.yaml
 	Timeframe            string              `yaml:"timeframe" env:"TIMEFRAME"`
 	Commission           float64             `yaml:"commission" env:"COMMISSION"`
 	Decimals             int                 `yaml:"decimals" env:"DECIMALS"`
@@ -68,7 +69,7 @@ type RangeConfig struct {
 	Step  float64
 }
 
-// Dir возвращает каталог с config.yaml и config_{PAIR}.yaml: CONFIG_DIR, а если он не задан —
+// Dir возвращает каталог с config.yaml и <direction>/<PAIR>.yaml: CONFIG_DIR, а если он не задан —
 // ближайший каталог configs/ с config.yaml вверх от текущего.
 func Dir() (string, error) {
 	if dir := os.Getenv("CONFIG_DIR"); dir != "" {
@@ -105,8 +106,12 @@ func Init() *Config {
 		panic(err)
 	}
 
+	if d := config.Analyzer.Direction; d != "buy" && d != "sell" {
+		panic(fmt.Sprintf("analyzer.direction must be buy or sell, got %q", d))
+	}
+
 	if config.Analyzer.Pair != "" {
-		pairConfigPath := filepath.Join(dir, fmt.Sprintf("config_%s.yaml", config.Analyzer.Pair))
+		pairConfigPath := filepath.Join(dir, config.Analyzer.Direction, config.Analyzer.Pair+".yaml")
 		err = cleanenv.ReadConfig(pairConfigPath, &config)
 		if err != nil {
 			panic(err)

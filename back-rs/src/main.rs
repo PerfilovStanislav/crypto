@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 use crypto_back::analyzer::Analyzer;
-use crypto_back::config::Config;
+use crypto_back::config::{Config, Direction};
 use crypto_back::fan::FanBoost;
 use crypto_back::storage::{self, Db};
 use crypto_back::timeframe::Timeframe;
@@ -35,6 +35,10 @@ fn main() -> ExitCode {
 
 async fn run() -> Result<()> {
     let cfg = Config::load()?;
+    if cfg.analyzer.active && cfg.analyzer.direction == Direction::Sell {
+        // Перебор умеет только лонги: молча посчитать покупки по sell-конфигам хуже, чем упасть.
+        anyhow::bail!("analyzer.direction sell: the strategy search supports only buy for now");
+    }
     let _log_guard = logger::init(&cfg.log)?;
 
     let shutdown = CancellationToken::new();

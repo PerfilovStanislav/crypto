@@ -1,14 +1,21 @@
-#+ 272.87% ( 46)  10.22% ( 30)  [pr/dd:26.69  pr/cnd:0.1650]  ind1:[    tema  LO  0.67]  ind2:[    dema   L  0.48]  tp:1286  sl:995  http://localhost/?tf=4h&tp=1286&sl=995&i1=tema,0.67,LO&i2=dema,0.48,L
+# 2h + 306.37% ( 46)   3.22% (110)  [pr/dd:95.12  pr/cnd:0.0725]  ind1:[     ema  LH  1.35]  ind2:[     ema   L  1.42]  tp:21773  sl:4782  http://localhost/?tf=2h&tp=21773&sl=4782&i1=ema,1.35,LH&i2=ema,1.42,L
 analyzer:
-  decimals: 3
+  timeframe: "2h"
+  minCloses: 100            # минимальное кол-во takeprofits за весь период
+  minSignals: 70            # минимальное кол-во пересечений индикаторов
+  minSignalsLastMonths: 4   # минимальное кол-во пересечений индикаторов
+  lastMonthsLimit: 2        # за указаный период
+  periodMonths: 24          # период истории для перебора, месяцев (по умолчанию 24)
+  minTakeProfits: 40        # минимальное кол-во положительных сделок (takeprofits)
+  decimals: 2
   takeprofit:
-    start: 1000
-    end: 4000
-    step: 10
+    start: 10000
+    end: 25000
+    step: 200
   stoploss:
-    start: 1000
-    end: 4000
-    step: 10
+    start: 1500
+    end: 6000
+    step: 100
 
   indicators:
     # 1-ая группа индикаторов
