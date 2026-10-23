@@ -11,7 +11,7 @@ use crypto_back::analyzer::{
     calculate_closings, evaluate, evaluate_trades, fill_signal_bits, scout, scout_interleaved,
     signal_words, Analyzer, Compare, Grid, Metrics, TaskResult,
 };
-use crypto_back::config::AnalyzerConfig;
+use crypto_back::config::{AnalyzerConfig, Direction};
 use crypto_back::indicator::IndicatorType;
 use crypto_back::source::{Quotes, SourceType};
 use serde::{Deserialize, Deserializer};
@@ -278,7 +278,12 @@ fn evaluations_match_go() {
 
         for (ti, gt) in f.golden.tp_sl.iter().enumerate() {
             let (param, outcomes) = &f.grid.tp_sl[tp_sl[&(gt.tp.to_bits(), gt.sl.to_bits())]];
-            let closes = calculate_closings(&f.az.quotes, *param, f.golden.config.commission);
+            let closes = calculate_closings(
+                &f.az.quotes,
+                *param,
+                f.golden.config.commission,
+                Direction::Buy,
+            );
             let ours = evaluate(&signals, &closes, f.az.len(), min_tp);
 
             // Быстрый перебор: те же решения и метрики, weighted pr/dd — с точностью до округления.

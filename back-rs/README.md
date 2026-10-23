@@ -12,7 +12,7 @@ Rust-версия `back/`. Делает то же, что Go-версия:
 - **`config.yaml`** — общие настройки: база, HTTP, `analyzer.pair`, `analyzer.direction` (`buy` или `sell`), потоки, GPU и т.п. С паролем к базе, поэтому не хранится в git; шаблон — `configs/config.yaml.example`.
 - **`<direction>/<PAIR>.yaml`** (например, `buy/ADAUSDT.yaml`) — настройки пары: `timeframe`, `decimals`, `minCloses`, `minSignals`, `minSignalsLastMonths`, `lastMonthsLimit`, `periodMonths`, `minTakeProfits`, сетки TP/SL и индикаторов.
 
-Перебор пока умеет только покупки. При `direction: sell` вместе с `analyzer.active` приложение сразу выходит с ошибкой.
+При `direction: sell` перебираются шорты: вход по открытию свечи после сигнала, TP — `low ≤ вход − tp`, SL — `high ≥ вход + sl` (если на свече задеты оба, считается SL). Доход шорта считается от всего капитала: `(вход − выход) / вход`. Просадка TP-сделки — насколько цена поднималась выше входа.
 
 Проще всего через `make` из `back-rs/` (`make` без аргументов покажет все команды):
 

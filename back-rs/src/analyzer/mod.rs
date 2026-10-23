@@ -191,7 +191,9 @@ impl Analyzer {
             .flat_map_iter(|&tp| {
                 sls.iter()
                     .map(move |&sl| TpSlParam { tp, sl })
-                    .take_while(|&p| has_enough_closes(&self.quotes, p, self.cfg.min_closes))
+                    .take_while(|&p| {
+                        has_enough_closes(&self.quotes, p, self.cfg.min_closes, self.cfg.direction)
+                    })
                     .filter(|&p| self.tp_sl_allowed(p))
             })
             .collect();
@@ -254,7 +256,8 @@ impl Analyzer {
         grid.tp_sl = params
             .into_par_iter()
             .map(|p| {
-                let closes = calculate_closings(&self.quotes, p, self.cfg.commission);
+                let closes =
+                    calculate_closings(&self.quotes, p, self.cfg.commission, self.cfg.direction);
                 (p, Outcomes::from_closings(&closes))
             })
             .collect();

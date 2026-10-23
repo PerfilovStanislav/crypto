@@ -147,7 +147,12 @@ pub fn quotes_response(az: &Analyzer, req: &api::QuotesRequest) -> api::QuotesRe
         tp /= factor;
         sl /= factor;
     }
-    let closes = calculate_closings(&az.quotes, TpSlParam { tp, sl }, az.cfg.commission);
+    let closes = calculate_closings(
+        &az.quotes,
+        TpSlParam { tp, sl },
+        az.cfg.commission,
+        az.cfg.direction,
+    );
 
     let ind1 = indicator_prices(az, req.ind1.as_ref());
     let ind2 = indicator_prices(az, req.ind2.as_ref());
