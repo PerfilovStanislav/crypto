@@ -454,22 +454,9 @@ function drawChart() {
       if (closeTimePoint) {
         const closeTime = (closeTimePoint.getTime() / 1000) as UTCTimestamp;
         
-        let closeText = 'TP';
-        let closeColor = '#48c774'; // green
-
-        const candles = chartData?.candles;
-        if (candles && candles.o && candles.o.price && candles.l && candles.l.price) {
-          const openedPrice = candles.o.price[deal.open];
-          const payload = getRequestPayload();
-          if (payload) {
-            const sl = payload.stoploss;
-            const lowAtClose = candles.l.price[deal.close];
-            if (lowAtClose <= openedPrice - sl) {
-              closeText = 'SL';
-              closeColor = '#ff3860'; // red
-            }
-          }
-        }
+        // Какой уровень сработал, знает сервер: он же считал сделку (и лонг, и шорт).
+        const closeText = deal.takeProfit ? 'TP' : 'SL';
+        const closeColor = deal.takeProfit ? '#48c774' : '#ff3860'; // green / red
 
         markers.push({
           time: closeTime,

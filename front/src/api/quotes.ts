@@ -143,6 +143,8 @@ export interface Deal {
   open: number;
   /** индекс закрытия сделки */
   close: number;
+  /** закрыта по тейк-профиту (false — по стоп-лоссу) */
+  takeProfit: boolean;
 }
 
 function createBaseQuotesRequest(): QuotesRequest {
@@ -621,7 +623,7 @@ export const Candles: MessageFns<Candles> = {
 };
 
 function createBaseDeal(): Deal {
-  return { open: 0, close: 0 };
+  return { open: 0, close: 0, takeProfit: false };
 }
 
 export const Deal: MessageFns<Deal> = {
@@ -631,6 +633,9 @@ export const Deal: MessageFns<Deal> = {
     }
     if (message.close !== 0) {
       writer.uint32(16).int32(message.close);
+    }
+    if (message.takeProfit !== false) {
+      writer.uint32(24).bool(message.takeProfit);
     }
     return writer;
   },
@@ -658,6 +663,14 @@ export const Deal: MessageFns<Deal> = {
           message.close = reader.int32();
           continue;
         }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.takeProfit = reader.bool();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -674,6 +687,7 @@ export const Deal: MessageFns<Deal> = {
     const message = createBaseDeal();
     message.open = object.open ?? 0;
     message.close = object.close ?? 0;
+    message.takeProfit = object.takeProfit ?? false;
     return message;
   },
 };

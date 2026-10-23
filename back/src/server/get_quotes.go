@@ -140,6 +140,8 @@ func (s *Server) getQuotes(w http.ResponseWriter, body []byte) error {
 		Sl: sl,
 	}
 	TpSlCloses := analyzer.CalculateClosings(s.az.Quotes, p, s.az.Cfg.Commission)
+	// Множитель TP-сделки — cms*(вход+tp)/вход > cms, SL-сделки — cms*(вход-sl)/вход < cms.
+	cms := (1 - s.az.Cfg.Commission) * (1 - s.az.Cfg.Commission)
 
 	ind1Prices := s.getIndicatorCalculatedPrices(req.Ind1)
 	ind2Prices := s.getIndicatorCalculatedPrices(req.Ind2)
@@ -176,8 +178,9 @@ func (s *Server) getQuotes(w http.ResponseWriter, body []byte) error {
 
 		result *= tradeCoef
 		deals = append(deals, &api.Deal{
-			Open:  int32(openingSignalIndex + 1),
-			Close: int32(closingIndex),
+			Open:       int32(openingSignalIndex + 1),
+			Close:      int32(closingIndex),
+			TakeProfit: tradeCoef > cms && closingIndex < len(s.az.Quotes.Opens),
 		})
 	}
 

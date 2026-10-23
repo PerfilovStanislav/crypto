@@ -153,6 +153,9 @@ pub fn quotes_response(az: &Analyzer, req: &api::QuotesRequest) -> api::QuotesRe
         az.cfg.commission,
         az.cfg.direction,
     );
+    // Множитель TP-сделки — cms·(вход+tp)/вход > cms, SL-сделки — cms·(вход−sl)/вход < cms,
+    // в лонге и в шорте одинаково.
+    let cms = (1.0 - az.cfg.commission) * (1.0 - az.cfg.commission);
 
     let ind1 = indicator_prices(az, req.ind1.as_ref());
     let ind2 = indicator_prices(az, req.ind2.as_ref());
@@ -186,6 +189,7 @@ pub fn quotes_response(az: &Analyzer, req: &api::QuotesRequest) -> api::QuotesRe
         deals.push(api::Deal {
             open: open as i32 + 1,
             close: closing_index as i32,
+            take_profit: trade_coef > cms && (closing_index as usize) < az.len(),
         });
     }
 
@@ -252,5 +256,58 @@ fn source_type(v: i32) -> SourceType {
         13 => LCH,
         14 => OCH,
         _ => L,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{AnalyzerConfig, Direction};
+    use crate::source::Quotes;
+
+    #[test]
+    fn short_deals_are_marked_by_the_level_that_fired() {
+        // (open, high, low). Сигнал на каждой свече: ema(1.0) от H всегда выше ema(1.0) от L.
+        let candles = [
+            (100.0, 100.5, 99.5),
+            (100.0, 104.0, 99.0), // шорт от 100: рост до 104 — SL (100 + 3)
+            (100.0, 101.0, 94.0), // шорт от 100: падение до 94 — TP (100 - 5)
+            (95.0, 95.5, 94.5),   // шорт от 95 не закрылся до конца истории
+        ];
+        let quotes = Quotes {
+            timestamps: (0..candles.len() as i64).collect(),
+            opens: candles.iter().map(|c| c.0).collect(),
+            highs: candles.iter().map(|c| c.1).collect(),
+            lows: candles.iter().map(|c| c.2).collect(),
+            closes: candles.iter().map(|c| c.0).collect(),
+            volumes: vec![1.0; candles.len()],
+        };
+        let cfg = AnalyzerConfig {
+            direction: Direction::Sell,
+            commission: 0.001,
+            ..Default::default()
+        };
+        let az = Analyzer::with_cutoff_index(cfg, quotes, 0);
+        let ema = |source| {
+            Some(api::Indicator {
+                r#type: 2,
+                coef: 1.0,
+                source,
+            })
+        };
+        let req = api::QuotesRequest {
+            tf: 0,
+            takeprofit: 5.0,
+            stoploss: 3.0,
+            ind1: ema(1), // L
+            ind2: ema(4), // H
+        };
+
+        let deals: Vec<_> = quotes_response(&az, &req)
+            .deals
+            .iter()
+            .map(|d| (d.open, d.close, d.take_profit))
+            .collect();
+        assert_eq!(deals, [(1, 1, false), (2, 2, true), (3, 4, false)]);
     }
 }

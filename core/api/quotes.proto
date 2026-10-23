@@ -85,4 +85,5 @@ message Candles {
 message Deal {
   int32 open = 1;  // индекс открытия сделки
   int32 close = 2; // индекс закрытия сделки
+  bool take_profit = 3; // закрыта по тейк-профиту (false — по стоп-лоссу)
 }
