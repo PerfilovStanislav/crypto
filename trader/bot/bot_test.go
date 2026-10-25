@@ -177,9 +177,22 @@ func TestTradeWithoutSignalOnlyCleansUp(t *testing.T) {
 	}
 }
 
-func TestEnterRefusesAmountBelowMinimum(t *testing.T) {
+func TestEnterRaisesAmountToMinimum(t *testing.T) {
 	ex := newFakeExchange(t)
 	ex.balances["USDT"] = 90 // 5% = 4.5 < minOrderAmt 5
+	b := newTestBot(ex, &fakeStore{})
+
+	if err := b.trade(strategy(sma5, sma2), true, 150); err != nil {
+		t.Fatal(err)
+	}
+	if len(ex.placed) == 0 || ex.placed[0].Qty != "5.000000" {
+		t.Fatalf("placed %+v, want a buy for the minimum 5 USDT", ex.placed)
+	}
+}
+
+func TestEnterRefusesBalanceBelowMinimum(t *testing.T) {
+	ex := newFakeExchange(t)
+	ex.balances["USDT"] = 4 // even the minimum 5 USDT can not be bought
 	b := newTestBot(ex, &fakeStore{})
 
 	if err := b.trade(strategy(sma5, sma2), true, 150); err == nil {

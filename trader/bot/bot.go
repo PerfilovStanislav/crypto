@@ -320,8 +320,14 @@ func (b *Bot) enter(s config.StrategyConfig, inst exchange.Instrument, lastClose
 		}
 	}
 	amount := inst.FloorQuoteQty(stake)
-	if amount < inst.MinOrderAmt || amount <= 0 {
-		return fmt.Errorf("order amount %s %s is below the minimum %v", inst.FormatQuoteQty(amount), inst.QuoteCoin, inst.MinOrderAmt)
+	// Bybit rejects buys below minOrderAmt (5 USDT), so a small share of the
+	// balance is raised to the minimum while the balance covers it.
+	if amount < inst.MinOrderAmt {
+		b.logf(s, "Order amount %s %s is below the minimum, buying for %v", inst.FormatQuoteQty(amount), inst.QuoteCoin, inst.MinOrderAmt)
+		amount = inst.MinOrderAmt
+	}
+	if amount > quoteBalance || amount <= 0 {
+		return fmt.Errorf("%s balance %s is below the order amount %s", inst.QuoteCoin, inst.FormatQuoteQty(quoteBalance), inst.FormatQuoteQty(amount))
 	}
 
 	linkID := fmt.Sprintf("%s%s-%d", orderLinkPrefix, s.Symbol, b.now().UnixMilli())
