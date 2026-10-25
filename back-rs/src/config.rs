@@ -96,8 +96,8 @@ pub struct AnalyzerConfig {
     pub decimals: i32,
     pub min_closes: usize,
     pub min_signals: usize,
-    pub min_signals_last_months: usize,
-    pub last_months_limit: u32,
+    pub min_recent_signals: usize,
+    pub recent_months: u32,
     /// За сколько месяцев истории перебирать стратегии (0 — по умолчанию, 24).
     pub period_months: u32,
     pub min_take_profits: usize,
@@ -108,6 +108,15 @@ pub struct AnalyzerConfig {
     pub fan_speed: u32,
     /// В перебор идут только TP/SL с TP ≥ N·SL. 0 — без ограничения.
     pub min_tp_sl_ratio: f64,
+    /// Порог взвешенного роста капитала в фильтре перебора. 0 — по умолчанию, 2.
+    pub min_weighted_coef: f64,
+    /// Мартингейл: после SL ставка растёт, чтобы TP вернул убыток серии × N сверх обычной
+    /// прибыли (см. `analyzer/martingale.rs`). 0 — выключен, каждая сделка на весь капитал.
+    pub martingale: f64,
+    /// Первая сделка серии мартингейла, % капитала.
+    pub deposit_percent: f64,
+    /// Столько SL подряд при мартингейле отбрасывают стратегию. 0 — без ограничения.
+    pub max_losses: usize,
     pub takeprofit: RangeConfig,
     pub stoploss: RangeConfig,
     pub indicators: Vec<Vec<IndicatorConfig>>,
@@ -169,6 +178,43 @@ impl AnalyzerConfig {
             self.period_months
         }
     }
+
+    /// `ln(minWeightedCoef)`; по умолчанию ровно `LN_2`, как было до появления параметра.
+    pub fn min_weighted_log(&self) -> f64 {
+        if self.min_weighted_coef <= 0.0 || self.min_weighted_coef == 2.0 {
+            std::f64::consts::LN_2
+        } else {
+            self.min_weighted_coef.ln()
+        }
+    }
+
+    // `!(x > c)` вместо `x <= c`: NaN тоже ошибка.
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
+    fn validate(&self) -> Result<()> {
+        if !(self.min_weighted_coef >= 0.0) {
+            bail!(
+                "analyzer.minWeightedCoef must be >= 0, got {}",
+                self.min_weighted_coef
+            );
+        }
+        if self.min_recent_signals > 0 && self.recent_months == 0 {
+            bail!(
+                "analyzer.minRecentSignals is {}, but analyzer.recentMonths is 0: \
+                 there are no recent signals in 0 months, so no indicator pair would pass",
+                self.min_recent_signals
+            );
+        }
+        if !(self.martingale >= 0.0) {
+            bail!("analyzer.martingale must be >= 0, got {}", self.martingale);
+        }
+        if self.martingale > 0.0 && !(self.deposit_percent > 0.0 && self.deposit_percent <= 100.0) {
+            bail!(
+                "analyzer.depositPercent must be in (0, 100] with martingale, got {}",
+                self.deposit_percent
+            );
+        }
+        Ok(())
+    }
 }
 
 impl RangeConfig {
@@ -211,6 +257,7 @@ impl Config {
             cfg.analyzer.stoploss.scale_down(factor);
         }
 
+        cfg.analyzer.validate()?;
         Ok(cfg)
     }
 }
@@ -268,11 +315,8 @@ fn apply_env(cfg: &mut Config) -> Result<()> {
     env_parse("ANALYZER_DECIMALS", &mut a.decimals)?;
     env_parse("ANALYZER_MIN_CLOSES", &mut a.min_closes)?;
     env_parse("ANALYZER_MIN_SIGNALS", &mut a.min_signals)?;
-    env_parse(
-        "ANALYZER_MIN_SIGNALS_LAST_MONTHS",
-        &mut a.min_signals_last_months,
-    )?;
-    env_parse("ANALYZER_LAST_MONTHS_LIMIT", &mut a.last_months_limit)?;
+    env_parse("ANALYZER_MIN_RECENT_SIGNALS", &mut a.min_recent_signals)?;
+    env_parse("ANALYZER_RECENT_MONTHS", &mut a.recent_months)?;
     env_parse("ANALYZER_PERIOD_MONTHS", &mut a.period_months)?;
     env_parse("ANALYZER_MIN_TAKE_PROFITS", &mut a.min_take_profits)?;
     if let Some(v) = env_value("ANALYZER_GPU") {
@@ -280,6 +324,10 @@ fn apply_env(cfg: &mut Config) -> Result<()> {
     }
     env_parse("ANALYZER_FAN_SPEED", &mut a.fan_speed)?;
     env_parse("ANALYZER_MIN_TP_SL_RATIO", &mut a.min_tp_sl_ratio)?;
+    env_parse("ANALYZER_MIN_WEIGHTED_COEF", &mut a.min_weighted_coef)?;
+    env_parse("ANALYZER_MARTINGALE", &mut a.martingale)?;
+    env_parse("ANALYZER_DEPOSIT_PERCENT", &mut a.deposit_percent)?;
+    env_parse("ANALYZER_MAX_LOSSES", &mut a.max_losses)?;
     if let Some(v) = env_value("ANALYZER_ACTIVE") {
         a.active = parse_bool(&v).context("ANALYZER_ACTIVE")?;
     }

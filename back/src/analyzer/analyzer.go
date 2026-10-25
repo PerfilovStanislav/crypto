@@ -73,7 +73,7 @@ var (
 )
 
 func New(cfg config.AnalyzerConfig, quotes source.Quotes) *Analyzer {
-	cutoffTime := time.Now().AddDate(0, -cfg.LastMonthsLimit, 0)
+	cutoffTime := time.Now().AddDate(0, -cfg.RecentMonths, 0)
 	cutoffIndex := len(quotes.Opens)
 	for i, t := range quotes.Timestamps {
 		if !t.Before(cutoffTime) {
@@ -490,17 +490,17 @@ level2:
 
 func (a *Analyzer) CompareIndicators(currentPrices, nextPrices []float64) []int {
 	matchCount := 0
-	lastMonthsSignals := 0
+	recentSignals := 0
 	for i := 0; i < a.ln-1; i++ {
 		if nextPrices[i] > currentPrices[i] {
 			matchCount++
 			if i >= a.cutoffIndex {
-				lastMonthsSignals++
+				recentSignals++
 			}
 		}
 	}
 
-	if matchCount < a.Cfg.MinSignals || lastMonthsSignals < a.Cfg.MinSignalsLastMonths {
+	if matchCount < a.Cfg.MinSignals || recentSignals < a.Cfg.MinRecentSignals {
 		return nil
 	}
 

@@ -1,12 +1,19 @@
-# 2h + 101.94% ( 44)   1.05% (130)  [pr/dd:97.52  pr/cnd:0.0347]  ind1:[    dema OCH  1.19]  ind2:[    tema LCH  0.71]  tp:3890  sl:581  http://localhost/?tf=2h&tp=3890&sl=581&i1=dema,1.19,OCH&i2=tema,0.71,LCH
+# +  99.43% ( 59)   1.44% (143)  [pr/dd:68.90  pr/cnd:0.0268]  ind1:[     ema  CH  0.79]  ind2:[    dema   C  0.59]  tp:3710  sl:801  http://localhost/?tf=2h&tp=3710&sl=801&i1=ema,0.79,CH&i2=dema,0.59,C
 analyzer:
   timeframe: "2h"
+
+  martingale: 0.0           # 0 или нет ключа — выключен, каждая сделка на весь капитал
+  depositPercent: 30        # первая сделка серии, % капитала
+  maxLosses: 3              # столько SL подряд — стратегия отбрасывается (0 — без ограничения)
+
   minCloses: 100            # минимальное кол-во takeprofits за весь период
   minSignals: 70            # минимальное кол-во пересечений индикаторов
-  minSignalsLastMonths: 4   # минимальное кол-во пересечений индикаторов
-  lastMonthsLimit: 2        # за указаный период
+
+  minRecentSignals: 4       # минимальное кол-во сигналов за последние recentMonths месяцев
+  recentMonths: 2           # «свежий» период для minRecentSignals, месяцев
+
   periodMonths: 24          # период истории для перебора, месяцев (по умолчанию 24)
-  minTakeProfits: 40        # минимальное кол-во положительных сделок (takeprofits)
+  minTakeProfits: 50        # минимальное кол-во положительных сделок (takeprofits)
   decimals: 2
   takeprofit:
     start: 3000

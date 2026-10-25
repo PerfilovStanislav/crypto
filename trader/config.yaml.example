@@ -15,6 +15,10 @@ bybit:
 #   token: "123456:ABC..."
 #   chat_id: "123456789"
 
+# Martingale series (see martingale in a strategy) are kept here between
+# restarts. Optional, default state.json in the working directory.
+# state_file: "state.json"
+
 # Optional: every closed candle is also saved here. The bot never reads it back,
 # so on a small server without ClickHouse just remove this section.
 db:
@@ -46,3 +50,11 @@ strategies:
       type: "ema"
       source: "C"
       coef: 0.5
+    # Optional martingale, same rules as analyzer.martingale: deposit_percent is
+    # the first stake of a series; after a stop loss the next buy is
+    # base + martingale * series loss / TP return, after a take profit it is the
+    # base again. After max_losses stop losses in a row (0 = no limit), or when
+    # the balance can not cover the stake, the strategy stops and a Telegram
+    # message is sent; remove the symbol from state_file to resume.
+    # martingale: 1.2
+    # max_losses: 5

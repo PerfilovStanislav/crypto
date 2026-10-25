@@ -40,21 +40,21 @@ type HttpConfig struct {
 }
 
 type AnalyzerConfig struct {
-	Active               bool                `yaml:"active" env:"ACTIVE"` // запускать перебор стратегий
-	Threads              int                 `yaml:"threads" env:"THREADS"`
-	Pair                 string              `yaml:"pair" env:"PAIR"`
-	Direction            string              `yaml:"direction" env:"DIRECTION" env-default:"buy"` // конфиг пары: <direction>/<PAIR>.yaml
-	Timeframe            string              `yaml:"timeframe" env:"TIMEFRAME"`
-	Commission           float64             `yaml:"commission" env:"COMMISSION"`
-	Decimals             int                 `yaml:"decimals" env:"DECIMALS"`
-	MinCloses            int                 `yaml:"minCloses" env:"MIN_CLOSES"`
-	MinSignals           int                 `yaml:"minSignals" env:"MIN_SIGNALS"`
-	MinSignalsLastMonths int                 `yaml:"minSignalsLastMonths" env:"MIN_SIGNALS_LAST_MONTHS"`
-	LastMonthsLimit      int                 `yaml:"lastMonthsLimit" env:"LAST_MONTHS_LIMIT"`
-	MinTakeProfits       int                 `yaml:"minTakeProfits" env:"MIN_TAKE_PROFITS"`
-	Takeprofit           RangeConfig         `yaml:"takeprofit" env:"TAKEPROFIT"`
-	Stoploss             RangeConfig         `yaml:"stoploss" env:"STOPLOSS"`
-	Indicators           [][]IndicatorConfig `yaml:"indicators" env-prefix:"INDICATORS_"`
+	Active           bool                `yaml:"active" env:"ACTIVE"` // запускать перебор стратегий
+	Threads          int                 `yaml:"threads" env:"THREADS"`
+	Pair             string              `yaml:"pair" env:"PAIR"`
+	Direction        string              `yaml:"direction" env:"DIRECTION" env-default:"buy"` // конфиг пары: <direction>/<PAIR>.yaml
+	Timeframe        string              `yaml:"timeframe" env:"TIMEFRAME"`
+	Commission       float64             `yaml:"commission" env:"COMMISSION"`
+	Decimals         int                 `yaml:"decimals" env:"DECIMALS"`
+	MinCloses        int                 `yaml:"minCloses" env:"MIN_CLOSES"`
+	MinSignals       int                 `yaml:"minSignals" env:"MIN_SIGNALS"`
+	MinRecentSignals int                 `yaml:"minRecentSignals" env:"MIN_RECENT_SIGNALS"` // сигналов за последние RecentMonths месяцев
+	RecentMonths     int                 `yaml:"recentMonths" env:"RECENT_MONTHS"`
+	MinTakeProfits   int                 `yaml:"minTakeProfits" env:"MIN_TAKE_PROFITS"`
+	Takeprofit       RangeConfig         `yaml:"takeprofit" env:"TAKEPROFIT"`
+	Stoploss         RangeConfig         `yaml:"stoploss" env:"STOPLOSS"`
+	Indicators       [][]IndicatorConfig `yaml:"indicators" env-prefix:"INDICATORS_"`
 }
 
 type IndicatorConfig struct {

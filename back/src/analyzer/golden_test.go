@@ -24,17 +24,17 @@ func TestGolden(t *testing.T) {
 
 	quotes := syntheticQuotes(600, 42)
 	cfg := config.AnalyzerConfig{
-		Threads:              4,
-		Pair:                 "TESTUSDT",
-		Timeframe:            "4h",
-		Commission:           0.001,
-		MinCloses:            20,
-		MinSignals:           50,
-		MinSignalsLastMonths: 2,
-		LastMonthsLimit:      1,
-		MinTakeProfits:       3,
-		Takeprofit:           config.RangeConfig{Start: 2.0, End: 6.0, Step: 1.0},
-		Stoploss:             config.RangeConfig{Start: 3.0, End: 9.0, Step: 1.5},
+		Threads:          4,
+		Pair:             "TESTUSDT",
+		Timeframe:        "4h",
+		Commission:       0.001,
+		MinCloses:        20,
+		MinSignals:       50,
+		MinRecentSignals: 2,
+		RecentMonths:     1,
+		MinTakeProfits:   3,
+		Takeprofit:       config.RangeConfig{Start: 2.0, End: 6.0, Step: 1.0},
+		Stoploss:         config.RangeConfig{Start: 3.0, End: 9.0, Step: 1.5},
 		Indicators: [][]config.IndicatorConfig{
 			{
 				{Type: indicator.Sma, Coefs: config.RangeConfig{Start: 3, End: 7, Step: 1}, Sources: []source.Type{source.C, source.LO}},
@@ -217,18 +217,18 @@ func goldenConfig(c config.AnalyzerConfig) map[string]any {
 		groups = append(groups, g)
 	}
 	return map[string]any{
-		"threads":              c.Threads,
-		"pair":                 c.Pair,
-		"timeframe":            c.Timeframe,
-		"commission":           c.Commission,
-		"decimals":             c.Decimals,
-		"minCloses":            c.MinCloses,
-		"minSignals":           c.MinSignals,
-		"minSignalsLastMonths": c.MinSignalsLastMonths,
-		"lastMonthsLimit":      c.LastMonthsLimit,
-		"minTakeProfits":       c.MinTakeProfits,
-		"takeprofit":           rng(c.Takeprofit),
-		"stoploss":             rng(c.Stoploss),
-		"indicators":           groups,
+		"threads":          c.Threads,
+		"pair":             c.Pair,
+		"timeframe":        c.Timeframe,
+		"commission":       c.Commission,
+		"decimals":         c.Decimals,
+		"minCloses":        c.MinCloses,
+		"minSignals":       c.MinSignals,
+		"minRecentSignals": c.MinRecentSignals,
+		"recentMonths":     c.RecentMonths,
+		"minTakeProfits":   c.MinTakeProfits,
+		"takeprofit":       rng(c.Takeprofit),
+		"stoploss":         rng(c.Stoploss),
+		"indicators":       groups,
 	}
 }

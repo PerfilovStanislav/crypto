@@ -8,6 +8,7 @@ mod fast;
 mod format;
 #[cfg(feature = "gpu")]
 pub mod gpu;
+mod martingale;
 mod refine;
 
 use std::collections::{HashMap, HashSet};
@@ -21,8 +22,9 @@ use rayon::prelude::*;
 pub use closings::{calculate_closings, has_enough_closes, TpSlClose, TpSlParam};
 pub use fast::{
     evaluate_trades, fill_signal_bits, scout, scout_interleaved, signal_weights, signal_words,
-    ColdOutcome, HotOutcome, Outcomes,
+    ColdOutcome, Filters, HotOutcome, Outcomes,
 };
+pub use martingale::{evaluate_martingale, Martingale, Series};
 pub use refine::{Refined, Refinement, Span, MAX_REFINE_ROUNDS};
 
 use crate::config::{AnalyzerConfig, RangeConfig};
@@ -102,7 +104,7 @@ pub struct Analyzer {
 impl Analyzer {
     pub fn new(cfg: AnalyzerConfig, quotes: Quotes) -> Self {
         let cutoff = Utc::now()
-            .checked_sub_months(Months::new(cfg.last_months_limit))
+            .checked_sub_months(Months::new(cfg.recent_months))
             .map_or(i64::MIN, |t| t.timestamp());
         let cutoff_index = quotes
             .timestamps
@@ -112,7 +114,7 @@ impl Analyzer {
         Self::with_cutoff_index(cfg, quotes, cutoff_index)
     }
 
-    /// `cutoff_index` — первая свеча периода `lastMonthsLimit`; нужен тестам, чтобы не зависеть от часов.
+    /// `cutoff_index` — первая свеча периода `recentMonths`; нужен тестам, чтобы не зависеть от часов.
     pub fn with_cutoff_index(cfg: AnalyzerConfig, quotes: Quotes, cutoff_index: usize) -> Self {
         Self {
             ln: quotes.len(),
@@ -128,6 +130,13 @@ impl Analyzer {
 
     pub fn is_empty(&self) -> bool {
         self.ln == 0
+    }
+
+    pub fn filters(&self) -> Filters {
+        Filters {
+            min_log: self.cfg.min_weighted_log(),
+            min_take_profits: self.cfg.min_take_profits,
+        }
     }
 
     pub fn indicator_prices(&self, kind: IndicatorType, source: SourceType, coef: f64) -> Vec<f64> {
@@ -148,7 +157,7 @@ impl Analyzer {
         )
     }
 
-    /// Фильтры `minSignals` и `minSignalsLastMonths` (сигнал на последней свече не считается).
+    /// Фильтры `minSignals` и `minRecentSignals` (сигнал на последней свече не считается).
     fn enough_signals(&self, current: &[f64], next: &[f64]) -> bool {
         let last = self.ln.saturating_sub(1);
         let cutoff = self.cutoff_index.min(last);
@@ -161,7 +170,7 @@ impl Analyzer {
         };
         let recent = count(cutoff..last);
         let all = count(0..cutoff) + recent;
-        all >= self.cfg.min_signals && recent >= self.cfg.min_signals_last_months
+        all >= self.cfg.min_signals && recent >= self.cfg.min_recent_signals
     }
 
     /// Сетка из конфига: индикаторы и TP/SL с теми же шагами, что в Go.
@@ -413,7 +422,7 @@ impl Analyzer {
         on_progress: &(dyn Fn(usize, usize) + Sync),
     ) -> Result<Option<TaskResult>> {
         let words = signal_words(self.ln);
-        let gpu = gpu::GpuScout::new(grid, self.ln, words)?;
+        let gpu = gpu::GpuScout::new(self, grid)?;
         tracing::info!(adapter = %gpu.adapter, "GPU scout ready");
         println!("GPU: {}", gpu.adapter);
 
@@ -439,7 +448,7 @@ impl Analyzer {
             let threshold = tracker.max().max(3.0);
             let scouted = std::time::Instant::now();
             t_bits += scouted - started;
-            let found = gpu.candidates(&bits, batch.len(), threshold, self.cfg.min_take_profits)?;
+            let found = gpu.candidates(&bits, batch.len(), threshold, self.filters())?;
             let exact = std::time::Instant::now();
             t_gpu += exact - scouted;
             candidates += found.as_ref().map_or(0, Vec::len);
@@ -489,11 +498,22 @@ impl Analyzer {
     fn scout_block(&self, tracker: &Tracker, block: &[Compare], signals: &mut Vec<u64>) {
         let grid = tracker.grid;
         let words = signal_words(self.ln);
-        let min_tp = self.cfg.min_take_profits;
+        let filters = self.filters();
 
         signals.resize(block.len() * words, 0);
         for (cmp, bits) in block.iter().zip(signals.chunks_exact_mut(words)) {
             fill_signal_bits(bits, &grid.prices[cmp.ind1], &grid.prices[cmp.ind2]);
+        }
+
+        if tracker.martingale.is_some() {
+            // shortcut: на CPU с мартингейлом нет быстрого прохода, каждая стратегия считается
+            // точно; быстрый отсев есть только на GPU (`gpu.rs`, ядро `martingale`).
+            for t in 0..grid.tp_sl.len() {
+                for (cmp, bits) in block.iter().zip(signals.chunks_exact(words)) {
+                    tracker.consider(cmp, t, bits, f64::INFINITY);
+                }
+            }
+            return;
         }
 
         for (t, (_, outcomes)) in grid.tp_sl.iter().enumerate() {
@@ -502,7 +522,7 @@ impl Analyzer {
                 .zip(signals.chunks_exact(LANES * words));
             for (cmps, chunk) in lanes {
                 let bits: [&[u64]; LANES] = std::array::from_fn(|i| &chunk[i * words..][..words]);
-                let bounds = scout_interleaved(bits, &outcomes.hot, &grid.weights, min_tp);
+                let bounds = scout_interleaved(bits, &outcomes.hot, &grid.weights, filters);
                 for ((cmp, bits), bound) in cmps.iter().zip(bits).zip(bounds) {
                     if let Some(bound) = bound {
                         tracker.consider(cmp, t, bits, bound);
@@ -514,7 +534,7 @@ impl Analyzer {
                 .iter()
                 .zip(signals[tail * words..].chunks_exact(words))
             {
-                if let Some(bound) = scout(bits, &outcomes.hot, &grid.weights, min_tp) {
+                if let Some(bound) = scout(bits, &outcomes.hot, &grid.weights, filters) {
                     tracker.consider(cmp, t, bits, bound);
                 }
             }
@@ -536,6 +556,23 @@ impl Analyzer {
                 duplicate_pairs = grid.duplicates.len(),
                 "grid prepared"
             );
+            if grid.tp_sl.is_empty() || grid.compares.is_empty() {
+                let c = &self.cfg;
+                println!(
+                    "nothing to search: {} TP/SL combinations (minCloses {}, minTpSlRatio {}), \
+                     {} indicator pairs (minSignals {}, minRecentSignals {} in recentMonths {}) \
+                     over {} candles",
+                    grid.tp_sl.len(),
+                    c.min_closes,
+                    c.min_tp_sl_ratio,
+                    grid.compares.len(),
+                    c.min_signals,
+                    c.min_recent_signals,
+                    c.recent_months,
+                    self.ln
+                );
+                return Ok(None);
+            }
 
             println!("Jobs:{}", grid.compares.len() * grid.tp_sl.len());
             println!("{}", format::header());
@@ -719,6 +756,8 @@ struct Tracker<'a> {
     on_best: &'a (dyn Fn(&TaskResult) + Sync),
     max_bits: AtomicU64,
     best: Mutex<Option<TaskResult>>,
+    filters: Filters,
+    martingale: Option<Martingale>,
 }
 
 impl<'a> Tracker<'a> {
@@ -734,6 +773,8 @@ impl<'a> Tracker<'a> {
             on_best,
             max_bits: AtomicU64::new(floor.to_bits()),
             best: Mutex::new(None),
+            filters: analyzer.filters(),
+            martingale: Martingale::from_config(&analyzer.cfg),
         }
     }
 
@@ -747,8 +788,25 @@ impl<'a> Tracker<'a> {
             return;
         }
         let (param, outcomes) = &self.grid.tp_sl[t];
-        let min_tp = self.analyzer.cfg.min_take_profits;
-        if let Some(metrics) = evaluate_trades(bits, outcomes, &self.grid.weights, min_tp) {
+        let weights = &self.grid.weights;
+        let metrics = match self.martingale {
+            Some(m) => {
+                let az = self.analyzer;
+                let series = Series::new(m, az.cfg.commission);
+                let opens = &az.quotes.opens;
+                evaluate_martingale(
+                    bits,
+                    outcomes,
+                    weights,
+                    opens,
+                    param.tp,
+                    series,
+                    self.filters,
+                )
+            }
+            None => evaluate_trades(bits, outcomes, weights, self.filters),
+        };
+        if let Some(metrics) = metrics {
             self.report(cmp, param, metrics);
         }
     }

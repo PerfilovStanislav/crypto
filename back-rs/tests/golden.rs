@@ -9,7 +9,7 @@ use std::sync::atomic::AtomicBool;
 
 use crypto_back::analyzer::{
     calculate_closings, evaluate, evaluate_trades, fill_signal_bits, scout, scout_interleaved,
-    signal_words, Analyzer, Compare, Grid, Metrics, TaskResult,
+    signal_words, Analyzer, Compare, Filters, Grid, Metrics, TaskResult,
 };
 use crypto_back::config::{AnalyzerConfig, Direction};
 use crypto_back::indicator::IndicatorType;
@@ -260,6 +260,10 @@ fn evaluations_match_go() {
         .map(|(i, (p, _))| ((p.tp.to_bits(), p.sl.to_bits()), i))
         .collect();
     let min_tp = f.golden.config.min_take_profits;
+    let filters = Filters {
+        min_log: std::f64::consts::LN_2,
+        min_take_profits: min_tp,
+    };
     let passed: HashMap<(usize, usize), &GoldenEval> = f
         .golden
         .passed
@@ -287,10 +291,10 @@ fn evaluations_match_go() {
             let ours = evaluate(&signals, &closes, f.az.len(), min_tp);
 
             // Быстрый перебор: те же решения и метрики, weighted pr/dd — с точностью до округления.
-            let fast = evaluate_trades(&bits, outcomes, &f.grid.weights, min_tp);
+            let fast = evaluate_trades(&bits, outcomes, &f.grid.weights, filters);
 
             // Быстрый проход: отсекает только то, что точно не пройдёт, и оценивает сверху.
-            let bound = scout(&bits, &outcomes.hot, &f.grid.weights, min_tp);
+            let bound = scout(&bits, &outcomes.hot, &f.grid.weights, filters);
             match (bound, &fast) {
                 (Some(b), Some(m)) => assert!(b >= m.weighted_profit_to_dd, "{b} < {m:?}"),
                 (None, Some(m)) => panic!("scout dropped a passing strategy {m:?}"),
@@ -373,6 +377,10 @@ fn interleaved_scout_matches_single_lane() {
     let Some(f) = load() else { return };
     let words = signal_words(f.az.len());
     let min_tp = f.golden.config.min_take_profits;
+    let filters = Filters {
+        min_log: std::f64::consts::LN_2,
+        min_take_profits: min_tp,
+    };
     let masks: Vec<Vec<u64>> = f
         .grid
         .compares
@@ -388,9 +396,9 @@ fn interleaved_scout_matches_single_lane() {
     for (_, outcomes) in &f.grid.tp_sl {
         for group in masks.chunks_exact(3) {
             let bits = [&group[0][..], &group[1][..], &group[2][..]];
-            let interleaved = scout_interleaved(bits, &outcomes.hot, &f.grid.weights, min_tp);
+            let interleaved = scout_interleaved(bits, &outcomes.hot, &f.grid.weights, filters);
             for (b, got) in bits.iter().zip(interleaved) {
-                assert_eq!(got, scout(b, &outcomes.hot, &f.grid.weights, min_tp));
+                assert_eq!(got, scout(b, &outcomes.hot, &f.grid.weights, filters));
                 checked += 1;
             }
         }
@@ -404,6 +412,10 @@ fn search_finds_exact_best() {
     let Some(f) = load() else { return };
     let words = signal_words(f.az.len());
     let min_tp = f.golden.config.min_take_profits;
+    let filters = Filters {
+        min_log: std::f64::consts::LN_2,
+        min_take_profits: min_tp,
+    };
 
     let mut brute: Option<(f64, Compare, usize)> = None;
     let mut bits = vec![0; words];
@@ -414,7 +426,7 @@ fn search_finds_exact_best() {
             &f.grid.prices[cmp.ind2],
         );
         for (ti, (_, outcomes)) in f.grid.tp_sl.iter().enumerate() {
-            if let Some(m) = evaluate_trades(&bits, outcomes, &f.grid.weights, min_tp) {
+            if let Some(m) = evaluate_trades(&bits, outcomes, &f.grid.weights, filters) {
                 if brute.is_none_or(|(w, _, _)| m.weighted_profit_to_dd > w) {
                     brute = Some((m.weighted_profit_to_dd, *cmp, ti));
                 }
@@ -447,7 +459,11 @@ fn gpu_candidates_cover_exact_passes() {
     let Some(f) = load() else { return };
     let words = signal_words(f.az.len());
     let min_tp = f.golden.config.min_take_profits;
-    let gpu = match GpuScout::new(&f.grid, f.az.len(), words) {
+    let filters = Filters {
+        min_log: std::f64::consts::LN_2,
+        min_take_profits: min_tp,
+    };
+    let gpu = match GpuScout::new(&f.az, &f.grid) {
         Ok(gpu) => gpu,
         Err(e) => {
             eprintln!("skip: no GPU ({e:#})");
@@ -460,7 +476,7 @@ fn gpu_candidates_cover_exact_passes() {
         fill_signal_bits(b, &f.grid.prices[cmp.ind1], &f.grid.prices[cmp.ind2]);
     }
     let found: HashSet<(usize, usize)> = gpu
-        .candidates(&bits, f.grid.compares.len(), 3.0, min_tp)
+        .candidates(&bits, f.grid.compares.len(), 3.0, filters)
         .unwrap()
         .expect("candidate buffer is large enough")
         .into_iter()
@@ -470,7 +486,7 @@ fn gpu_candidates_cover_exact_passes() {
     let mut passing = 0;
     for (p, b) in bits.chunks_exact(words).enumerate() {
         for (t, (_, outcomes)) in f.grid.tp_sl.iter().enumerate() {
-            if evaluate_trades(b, outcomes, &f.grid.weights, min_tp).is_some() {
+            if evaluate_trades(b, outcomes, &f.grid.weights, filters).is_some() {
                 passing += 1;
                 assert!(found.contains(&(p, t)), "GPU missed pair #{p} tp/sl #{t}");
             }
@@ -576,4 +592,88 @@ fn refinement_follows_the_edge() {
     assert!(done.rounds >= 2, "the shifted start must hit the grid edge");
     assert!(edges_seen.borrow().iter().any(|e| e == "tp"));
     assert!(done.edges.is_empty());
+}
+
+/// С мартингейлом GPU тоже отбирает с запасом: среди его кандидатов есть все стратегии, которые
+/// проходят фильтры по точному `evaluate_martingale`.
+#[cfg(feature = "gpu")]
+#[test]
+fn gpu_martingale_candidates_cover_exact_passes() {
+    use crypto_back::analyzer::gpu::GpuScout;
+    use crypto_back::analyzer::{evaluate_martingale, Martingale, Series};
+
+    let Some(f) = load() else { return };
+    let words = signal_words(f.az.len());
+    let mut bits = vec![0u64; f.grid.compares.len() * words];
+    for (cmp, b) in f.grid.compares.iter().zip(bits.chunks_exact_mut(words)) {
+        fill_signal_bits(b, &f.grid.prices[cmp.ind1], &f.grid.prices[cmp.ind2]);
+    }
+
+    let mut passing = 0;
+    for (deposit_percent, max_losses, min_weighted_coef) in [
+        (5.0, 0, 1.05),
+        (30.0, 3, 1.2),
+        (60.0, 0, 1.5),
+        (100.0, 0, 1.01),
+    ] {
+        let cfg = AnalyzerConfig {
+            martingale: 1.2,
+            deposit_percent,
+            max_losses,
+            min_weighted_coef,
+            ..f.golden.config.clone()
+        };
+        let az = Analyzer::with_cutoff_index(cfg, f.az.quotes.clone(), f.golden.cutoff_index);
+        let gpu = match GpuScout::new(&az, &f.grid) {
+            Ok(gpu) => gpu,
+            Err(e) => {
+                eprintln!("skip: no GPU ({e:#})");
+                return;
+            }
+        };
+        let filters = az.filters();
+        let found: HashSet<(usize, usize)> = gpu
+            .candidates(&bits, f.grid.compares.len(), 3.0, filters)
+            .unwrap()
+            .expect("candidate buffer is large enough")
+            .into_iter()
+            .map(|(p, t)| (p as usize, t as usize))
+            .collect();
+
+        let m = Martingale::from_config(&az.cfg).unwrap();
+        let mut passed = 0;
+        for (p, b) in bits.chunks_exact(words).enumerate() {
+            for (t, (param, outcomes)) in f.grid.tp_sl.iter().enumerate() {
+                let series = Series::new(m, az.cfg.commission);
+                let opens = &az.quotes.opens;
+                if evaluate_martingale(
+                    b,
+                    outcomes,
+                    &f.grid.weights,
+                    opens,
+                    param.tp,
+                    series,
+                    filters,
+                )
+                .is_some()
+                {
+                    passed += 1;
+                    assert!(
+                        found.contains(&(p, t)),
+                        "GPU missed pair #{p} tp/sl #{t} ({m:?})"
+                    );
+                }
+            }
+        }
+        eprintln!(
+            "gpu martingale {deposit_percent}%/{max_losses}: {} candidates of {} cover {passed} passing",
+            found.len(),
+            bits.len() / words * f.grid.tp_sl.len()
+        );
+        passing += passed;
+    }
+    assert!(
+        passing > 0,
+        "nothing passes the filters, the check proves nothing"
+    );
 }

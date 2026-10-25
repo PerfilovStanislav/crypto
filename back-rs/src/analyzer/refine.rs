@@ -1,7 +1,8 @@
 //! Уточнение лучшей стратегии: тот же перебор на мелкой сетке вокруг неё.
 //!
 //! Каждый параметр берётся в пределах ± шага основной сетки:
-//! - TP/SL — с шагом в одну единицу `decimals` (без `decimals` — основной шаг / 10);
+//! - TP/SL — с шагом основной / 10 в целых единицах `decimals`, не меньше одной (без `decimals` —
+//!   основной / 10);
 //! - коэффициенты индикаторов — с шагом основной / 10, для SMA не меньше 1 (период целый).
 //!
 //! Значения считаются как `центр + k·шаг`, поэтому исходная лучшая стратегия входит в сетку
@@ -169,8 +170,10 @@ impl Analyzer {
             (0.0, 1.0)
         };
         let price_span = |center: f64, main: f64| {
+            // Не одна единица `decimals`: при крупном шаге (BTCUSDT: 500) это 10⁶ TP/SL
+            // и сотни ГБ исходов сделок.
             let fine = if unit > 0.0 {
-                unit.min(main)
+                ((main / COEF_SUBDIVISION / unit).round().max(1.0) * unit).min(main)
             } else {
                 main / COEF_SUBDIVISION
             };
@@ -321,5 +324,23 @@ mod tests {
         assert!(close(r.coefs1.step, 0.01));
         // SMA: период целый, 2..4, но не меньше 1.
         assert_eq!(r.coefs2.values, [2.0, 3.0, 4.0]);
+
+        // Как BTCUSDT: decimals 1, шаг 500 (50.0 в цене) — уточнение шагом 50, а не 1 (10⁶ TP/SL).
+        let btc = AnalyzerConfig {
+            decimals: 1,
+            takeprofit: range(3000.0, 5000.0, 50.0),
+            stoploss: range(500.0, 2000.0, 50.0),
+            ..az.cfg.clone()
+        };
+        let mut best = best;
+        best.task.tp_sl = TpSlParam {
+            tp: 4000.0,
+            sl: 1000.0,
+        };
+        let r = Analyzer::with_cutoff_index(btc, Quotes::default(), 0)
+            .refinement(&best)
+            .unwrap();
+        assert_eq!((r.tp.values.len(), r.sl.values.len()), (21, 21));
+        assert!(close(r.tp.step, 5.0) && close(r.tp.start(), 3950.0) && close(r.tp.end(), 4050.0));
     }
 }

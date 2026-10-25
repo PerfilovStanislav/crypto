@@ -73,7 +73,7 @@ fn config() -> AnalyzerConfig {
         commission: 0.0018,
         min_closes: 50,
         min_signals: 70,
-        min_signals_last_months: 0,
+        min_recent_signals: 0,
         min_take_profits: 10,
         takeprofit: range(3.0, 9.0, 0.5),
         stoploss: range(3.0, 12.0, 1.0),

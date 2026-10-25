@@ -17,7 +17,7 @@ use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::timeout::TimeoutLayer;
 use tracing::{error, info, Instrument};
 
-use crate::analyzer::{calculate_closings, Analyzer, TpSlParam};
+use crate::analyzer::{calculate_closings, Analyzer, Martingale, Series, TpSlParam};
 use crate::api;
 use crate::indicator::IndicatorType;
 use crate::source::SourceType;
@@ -161,6 +161,7 @@ pub fn quotes_response(az: &Analyzer, req: &api::QuotesRequest) -> api::QuotesRe
     let ind2 = indicator_prices(az, req.ind2.as_ref());
     let signals = az.compare_indicators(&ind1, &ind2).unwrap_or_default();
 
+    let mut series = Martingale::from_config(&az.cfg).map(|m| Series::new(m, az.cfg.commission));
     let mut result = 1.0;
     let mut closing_index = 0u32;
     let mut deals = Vec::new();
@@ -173,24 +174,37 @@ pub fn quotes_response(az: &Analyzer, req: &api::QuotesRequest) -> api::QuotesRe
         }
         let next = open as usize + 1;
         let trade_coef = closes.coefs[next];
-        closing_index = closes.indexes[next];
         let drawdown = closes.drawdowns[next];
+        if let Some(s) = &mut series {
+            // Как в переборе: ставки не хватило — тест стратегии на этом остановлен.
+            let Some(stake) = s.stake(az.quotes.opens[next], tp) else {
+                break;
+            };
+            s.settle(stake, trade_coef, drawdown);
+        } else {
+            result *= trade_coef;
+            if drawdown > max_drawdown {
+                max_drawdown = drawdown;
+            }
+        }
+        closing_index = closes.indexes[next];
 
         if trade_coef > 1.0 {
             wins += 1;
         } else if trade_coef < 1.0 {
             losses += 1;
         }
-        if drawdown > max_drawdown {
-            max_drawdown = drawdown;
-        }
-
-        result *= trade_coef;
         deals.push(api::Deal {
             open: open as i32 + 1,
             close: closing_index as i32,
             take_profit: trade_coef > cms && (closing_index as usize) < az.len(),
         });
+        if series.as_ref().is_some_and(Series::busted) {
+            break;
+        }
+    }
+    if let Some(s) = &series {
+        (result, max_drawdown) = (s.capital, s.max_drawdown);
     }
 
     let q = &az.quotes;
@@ -265,8 +279,8 @@ mod tests {
     use crate::config::{AnalyzerConfig, Direction};
     use crate::source::Quotes;
 
-    #[test]
-    fn short_deals_are_marked_by_the_level_that_fired() {
+    /// Сделки шорта на четырёх свечах: SL, TP и незакрытая.
+    fn short_deals(cfg: AnalyzerConfig) -> api::QuotesResponse {
         // (open, high, low). Сигнал на каждой свече: ema(1.0) от H всегда выше ema(1.0) от L.
         let candles = [
             (100.0, 100.5, 99.5),
@@ -285,7 +299,7 @@ mod tests {
         let cfg = AnalyzerConfig {
             direction: Direction::Sell,
             commission: 0.001,
-            ..Default::default()
+            ..cfg
         };
         let az = Analyzer::with_cutoff_index(cfg, quotes, 0);
         let ema = |source| {
@@ -302,12 +316,45 @@ mod tests {
             ind1: ema(1), // L
             ind2: ema(4), // H
         };
+        quotes_response(&az, &req)
+    }
 
-        let deals: Vec<_> = quotes_response(&az, &req)
-            .deals
+    fn deals(resp: &api::QuotesResponse) -> Vec<(i32, i32, bool)> {
+        resp.deals
             .iter()
             .map(|d| (d.open, d.close, d.take_profit))
-            .collect();
-        assert_eq!(deals, [(1, 1, false), (2, 2, true), (3, 4, false)]);
+            .collect()
+    }
+
+    #[test]
+    fn short_deals_are_marked_by_the_level_that_fired() {
+        let resp = short_deals(AnalyzerConfig::default());
+        assert_eq!(deals(&resp), [(1, 1, false), (2, 2, true), (3, 4, false)]);
+    }
+
+    #[test]
+    fn martingale_stops_the_backtest() {
+        let martingale = |max_losses| AnalyzerConfig {
+            martingale: 1.2,
+            deposit_percent: 50.0,
+            max_losses,
+            ..Default::default()
+        };
+
+        // Первый же SL — предел: дальше сделок нет, капитал потерял половину убытка шорта.
+        let resp = short_deals(martingale(1));
+        assert_eq!(deals(&resp), [(1, 1, false)]);
+        let cms = 0.999f64 * 0.999;
+        let capital = 1.0 + 0.5 * (cms * 0.97 - 1.0);
+        assert!(
+            (resp.profit_pct - (capital - 1.0) * 100.0).abs() < 1e-9,
+            "{}",
+            resp.profit_pct
+        );
+
+        // Без предела после SL идёт увеличенная ставка, TP её отыгрывает.
+        let resp = short_deals(martingale(0));
+        assert_eq!(deals(&resp), [(1, 1, false), (2, 2, true), (3, 4, false)]);
+        assert!(resp.profit_pct > 0.0, "{}", resp.profit_pct);
     }
 }

@@ -62,8 +62,16 @@ impl Outcomes {
     }
 }
 
+/// Пороги отбора стратегий из конфига.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Filters {
+    /// `ln(minWeightedCoef)`: взвешенный коэффициент должен быть строго больше порога.
+    pub min_log: f64,
+    pub min_take_profits: usize,
+}
+
 /// Наибольшее f32, не превосходящее `x`.
-fn f32_floor(x: f64) -> f32 {
+pub(super) fn f32_floor(x: f64) -> f32 {
     let f = x as f32;
     if f as f64 <= x || f.is_nan() {
         return f;
@@ -104,7 +112,7 @@ pub fn fill_signal_bits(bits: &mut [u64], current: &[f64], next: &[f64]) {
 
 /// Первая свеча `>= pos` с сигналом. Сигналы плотные, так что обычно хватает одного слова.
 #[inline(always)]
-fn next_signal(bits: &[u64], pos: usize) -> Option<usize> {
+pub(super) fn next_signal(bits: &[u64], pos: usize) -> Option<usize> {
     let mut w = pos / 64;
     let mut word = *bits.get(w)? & (u64::MAX << (pos % 64));
     loop {
@@ -150,9 +158,8 @@ impl Scout {
 
     // `!(x > c)` вместо `x <= c`: NaN должен отбрасываться, как в Go.
     #[allow(clippy::neg_cmp_op_on_partial_ord)]
-    fn bound(self, min_take_profits: usize) -> Option<f64> {
-        if !(self.weighted_log > std::f64::consts::LN_2) || (self.wins as usize) < min_take_profits
-        {
+    fn bound(self, f: Filters) -> Option<f64> {
+        if !(self.weighted_log > f.min_log) || (self.wins as usize) < f.min_take_profits {
             return None;
         }
         // Числитель тот же, что в точном расчёте, знаменатель не больше — оценка не меньше.
@@ -164,15 +171,10 @@ impl Scout {
 /// Верхняя оценка `weighted_profit_to_dd` пары на этом TP/SL или `None`, если пара точно
 /// не пройдёт фильтры. Если [`evaluate_trades`] даёт `Some(m)`, здесь `Some(b)` и
 /// `b >= m.weighted_profit_to_dd`.
-pub fn scout(
-    bits: &[u64],
-    hot: &[HotOutcome],
-    weights: &[f64],
-    min_take_profits: usize,
-) -> Option<f64> {
+pub fn scout(bits: &[u64], hot: &[HotOutcome], weights: &[f64], filters: Filters) -> Option<f64> {
     let mut s = Scout::NEW;
     while s.step(bits, hot, weights) {}
-    s.bound(min_take_profits)
+    s.bound(filters)
 }
 
 /// [`scout`] для `N` пар вперемешку: цепочки зависимых загрузок (сигнал → исход → следующий
@@ -182,7 +184,7 @@ pub fn scout_interleaved<const N: usize>(
     bits: [&[u64]; N],
     hot: &[HotOutcome],
     weights: &[f64],
-    min_take_profits: usize,
+    filters: Filters,
 ) -> [Option<f64>; N] {
     let mut lanes = [Scout::NEW; N];
     let mut active = [true; N];
@@ -195,18 +197,16 @@ pub fn scout_interleaved<const N: usize>(
             }
         }
     }
-    lanes.map(|s| s.bound(min_take_profits))
+    lanes.map(|s| s.bound(filters))
 }
 
 /// Точный расчёт — то же, что [`super::evaluate`], за один проход по сделкам.
-/// `weighted_final_coef > 2` проверяется как `Σ wᵢ·ln cᵢ > ln 2`.
-// `!(x > c)` вместо `x <= c`: NaN должен отбрасываться, как в Go.
-#[allow(clippy::neg_cmp_op_on_partial_ord)]
+/// `weighted_final_coef > minWeightedCoef` проверяется как `Σ wᵢ·ln cᵢ > ln(minWeightedCoef)`.
 pub fn evaluate_trades(
     bits: &[u64],
     outcomes: &Outcomes,
     weights: &[f64],
-    min_take_profits: usize,
+    filters: Filters,
 ) -> Option<Metrics> {
     let last = outcomes.len() - 1;
     let mut final_coef = 1.0;
@@ -230,30 +230,57 @@ pub fn evaluate_trades(
         pos = h.close as usize;
     }
 
-    if !(weighted_log > std::f64::consts::LN_2) {
+    finish(
+        Tally {
+            final_coef,
+            weighted_log,
+            max_drawdown,
+            wins,
+            losses,
+            total_candles,
+        },
+        filters,
+    )
+}
+
+/// Итоги прохода по сделкам стратегии.
+pub(super) struct Tally {
+    pub final_coef: f64,
+    pub weighted_log: f64,
+    pub max_drawdown: f64,
+    pub wins: usize,
+    pub losses: usize,
+    pub total_candles: i64,
+}
+
+/// Фильтры (weighted coef, weighted pr/dd > 3, число TP) и метрики по итогам прохода.
+// `!(x > c)` вместо `x <= c`: NaN должен отбрасываться, как в Go.
+#[allow(clippy::neg_cmp_op_on_partial_ord)]
+pub(super) fn finish(t: Tally, f: Filters) -> Option<Metrics> {
+    if !(t.weighted_log > f.min_log) {
         return None;
     }
-    let weighted_profit_to_dd = (weighted_log.exp() - 1.0) / max_drawdown;
-    if !(weighted_profit_to_dd > 3.0) || wins < min_take_profits {
+    let weighted_profit_to_dd = (t.weighted_log.exp() - 1.0) / t.max_drawdown;
+    if !(weighted_profit_to_dd > 3.0) || t.wins < f.min_take_profits {
         return None;
     }
 
-    let profit = final_coef - 1.0;
+    let profit = t.final_coef - 1.0;
     Some(Metrics {
-        coef: final_coef,
-        max_drawdown: max_drawdown * 100.0,
-        profit_to_dd: if max_drawdown == 0.0 {
+        coef: t.final_coef,
+        max_drawdown: t.max_drawdown * 100.0,
+        profit_to_dd: if t.max_drawdown == 0.0 {
             f64::INFINITY
         } else {
-            profit / max_drawdown
+            profit / t.max_drawdown
         },
-        profit_to_candles: if total_candles > 0 {
-            profit * 100.0 / total_candles as f64
+        profit_to_candles: if t.total_candles > 0 {
+            profit * 100.0 / t.total_candles as f64
         } else {
             0.0
         },
-        wins,
-        losses,
+        wins: t.wins,
+        losses: t.losses,
         weighted_profit_to_dd,
     })
 }
@@ -308,8 +335,12 @@ mod tests {
         let bits = [0b101]; // сигналы на свечах 0 и 2
         let outcomes = Outcomes::from_closings(&closes);
         let weights = signal_weights(n);
+        let filters = Filters {
+            min_log: std::f64::consts::LN_2,
+            min_take_profits: 0,
+        };
 
-        let fast = evaluate_trades(&bits, &outcomes, &weights, 0).expect("passes filters");
+        let fast = evaluate_trades(&bits, &outcomes, &weights, filters).expect("passes filters");
         let reference = evaluate(&[0, 2], &closes, n, 0).expect("passes filters");
         let w = (fast.weighted_profit_to_dd, reference.weighted_profit_to_dd);
         assert!((w.0 - w.1).abs() <= 1e-12 * w.1, "{w:?}");
@@ -319,7 +350,8 @@ mod tests {
         };
         assert_eq!(strip(fast), strip(reference));
 
-        let bound = scout(&bits, &outcomes.hot, &weights, 0).expect("scout keeps the candidate");
+        let bound =
+            scout(&bits, &outcomes.hot, &weights, filters).expect("scout keeps the candidate");
         assert!(bound >= fast.weighted_profit_to_dd);
     }
 }

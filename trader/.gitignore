@@ -1,6 +1,10 @@
 # Real API keys and DB password
 config.yaml
 
+# Martingale state (state_file)
+state.json
+state.json.tmp
+
 # Build output
 trader_bot
 /trader

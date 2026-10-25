@@ -46,6 +46,7 @@ type Bot struct {
 	store  CandleStore
 	ex     Exchange
 	notify Notifier
+	state  *stateStore // martingale series; loaded in Run when a strategy uses it
 
 	now           func() time.Time
 	candlePoll    time.Duration // wait between attempts to get the closed candle
@@ -70,6 +71,14 @@ func New(cfg *config.Config, store CandleStore, ex Exchange, notify Notifier) *B
 
 func (b *Bot) Run(ctx context.Context) error {
 	log.Println("Starting trading bot...")
+
+	if b.state == nil && usesMartingale(b.cfg) {
+		st, err := loadState(b.cfg.StateFile)
+		if err != nil {
+			return fmt.Errorf("martingale state: %w", err)
+		}
+		b.state = st
+	}
 
 	var wg sync.WaitGroup
 	for _, strategy := range b.cfg.Strategies {
@@ -215,10 +224,24 @@ func (b *Bot) trade(s config.StrategyConfig, signal bool, lastClose float64) err
 		return nil
 	}
 
+	// Before cancelStaleExits: the exit left over shows how the deal closed.
+	if s.Martingale > 0 {
+		if err := b.settle(s); err != nil {
+			return fmt.Errorf("martingale: %w", err)
+		}
+	}
+
 	// The position is gone, so TP or SL has fired. The other one is still
 	// waiting and would sell the next position at a stale price.
 	if err := b.cancelStaleExits(s); err != nil {
 		return fmt.Errorf("cancel stale exit orders: %w", err)
+	}
+
+	if s.Martingale > 0 {
+		if st := b.state.get(s.Symbol); st.Stopped != "" {
+			b.logf(s, "Martingale stopped (%s), remove %s from %s to resume", st.Stopped, s.Symbol, b.state.path)
+			return nil
+		}
 	}
 
 	if !signal {
@@ -288,7 +311,15 @@ func (b *Bot) enter(s config.StrategyConfig, inst exchange.Instrument, lastClose
 	if err != nil {
 		return fmt.Errorf("%s balance: %w", inst.QuoteCoin, err)
 	}
-	amount := inst.FloorQuoteQty(quoteBalance * s.DepositPercent / 100)
+	stake := quoteBalance * s.DepositPercent / 100
+	var base float64
+	if s.Martingale > 0 {
+		var ok bool
+		if stake, base, ok, err = b.martingaleStake(s, quoteBalance, lastClose); !ok || err != nil {
+			return err
+		}
+	}
+	amount := inst.FloorQuoteQty(stake)
 	if amount < inst.MinOrderAmt || amount <= 0 {
 		return fmt.Errorf("order amount %s %s is below the minimum %v", inst.FormatQuoteQty(amount), inst.QuoteCoin, inst.MinOrderAmt)
 	}
@@ -331,6 +362,12 @@ func (b *Bot) enter(s config.StrategyConfig, inst exchange.Instrument, lastClose
 	// Stop loss first: if the take profit fails, the loss is still capped.
 	if _, err := b.ex.PlaceOrder(exchange.StopMarketSell(s.Symbol, qty, slPrice, linkID+"-sl")); err != nil {
 		return fmt.Errorf("UNPROTECTED POSITION: stop loss at %s: %w", slPrice, err)
+	}
+	if s.Martingale > 0 {
+		deal := &openDeal{LinkID: linkID, Spent: amount, Qty: inst.FloorBaseQty(held), SLPrice: sl}
+		if err := b.state.update(s.Symbol, func(st *seriesState) { st.Base, st.Open = base, deal }); err != nil {
+			b.notifyf(s, "⚠️ %s %s: не удалось сохранить состояние мартингейла (%v), исход этой сделки не попадёт в серию", s.Symbol, s.Timeframe, err)
+		}
 	}
 	if _, err := b.ex.PlaceOrder(exchange.StopMarketSell(s.Symbol, qty, tpPrice, linkID+"-tp")); err != nil {
 		return fmt.Errorf("take profit at %s: %w", tpPrice, err)
