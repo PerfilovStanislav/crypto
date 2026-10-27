@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
+	"strings"
 	"sync"
 
 	"trader/config"
@@ -17,7 +19,7 @@ type seriesState struct {
 	Loss   float64 `json:"loss"`   // USDT lost in the series so far
 	Losses int     `json:"losses"` // stop losses in a row
 	// Stopped says why the strategy no longer trades; the user resumes it by
-	// removing the symbol from state_file.
+	// removing its key (e.g. "SOLUSDT-L") from state_file.
 	Stopped string    `json:"stopped,omitempty"`
 	Open    *openDeal `json:"open,omitempty"`
 }
@@ -25,8 +27,8 @@ type seriesState struct {
 // openDeal is what settle needs once the position is gone.
 type openDeal struct {
 	LinkID  string  `json:"link_id"`
-	Spent   float64 `json:"spent"` // USDT spent on the buy
-	Qty     float64 `json:"qty"`   // base coin protected by the exits
+	Entry   float64 `json:"entry"`
+	Qty     float64 `json:"qty"` // base coin protected by the exits
 	SLPrice float64 `json:"sl_price"`
 }
 
@@ -49,26 +51,38 @@ func loadState(path string) (*stateStore, error) {
 	if err := json.Unmarshal(data, &st.all); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	// The spot version keyed series by symbol and traded only longs; its open
+	// deal was a spot trade, which the futures bot does not manage.
+	for key, s := range st.all {
+		if strings.HasSuffix(key, "-L") || strings.HasSuffix(key, "-S") {
+			continue
+		}
+		if _, ok := st.all[key+"-L"]; !ok {
+			s.Open = nil
+			st.all[key+"-L"] = s
+		}
+		delete(st.all, key)
+	}
 	return st, nil
 }
 
-func (st *stateStore) get(symbol string) seriesState {
+func (st *stateStore) get(key string) seriesState {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	if s := st.all[symbol]; s != nil {
+	if s := st.all[key]; s != nil {
 		return *s
 	}
 	return seriesState{}
 }
 
-// update changes the series of symbol and saves the whole state.
-func (st *stateStore) update(symbol string, change func(*seriesState)) error {
+// update changes the series of a strategy key and saves the whole state.
+func (st *stateStore) update(key string, change func(*seriesState)) error {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	s := st.all[symbol]
+	s := st.all[key]
 	if s == nil {
 		s = &seriesState{}
-		st.all[symbol] = s
+		st.all[key] = s
 	}
 	change(s)
 
@@ -87,7 +101,7 @@ func (st *stateStore) update(symbol string, change func(*seriesState)) error {
 // settle books the deal that has just closed. Which exit fired shows in the
 // bot's exit order that is still waiting: a TP left means the SL fired.
 func (b *Bot) settle(s config.StrategyConfig) error {
-	open := b.state.get(s.Symbol).Open
+	open := b.state.get(s.Key()).Open
 	if open == nil {
 		return nil
 	}
@@ -102,24 +116,24 @@ func (b *Bot) settle(s config.StrategyConfig) error {
 	}
 
 	var msg string
-	err = b.state.update(s.Symbol, func(st *seriesState) {
+	err = b.state.update(s.Key(), func(st *seriesState) {
 		st.Open = nil
 		switch {
 		case tpLeft && !slLeft:
-			// shortcut: комиссия продажи и проскальзывание не учтены; точнее — по факту исполнения стоп-ордера.
-			st.Loss += open.Spent - open.Qty*open.SLPrice
+			// shortcut: комиссии и проскальзывание не учтены; точнее — по факту исполнения стоп-ордера.
+			st.Loss += open.Qty * math.Abs(open.SLPrice-open.Entry)
 			st.Losses++
-			msg = fmt.Sprintf("🔴 %s %s: стоп-лосс %d подряд, убыток серии %.2f USDT", s.Symbol, s.Timeframe, st.Losses, st.Loss)
+			msg = fmt.Sprintf("🔴 %s: стоп-лосс %d подряд, убыток серии %.2f USDT", title(s), st.Losses, st.Loss)
 			if s.MaxLosses > 0 && st.Losses >= s.MaxLosses {
 				st.Stopped = fmt.Sprintf("%d stop losses in a row", st.Losses)
-				msg += fmt.Sprintf("\n⛔ стратегия остановлена. Чтобы продолжить, удалите %s из %s", s.Symbol, b.state.path)
+				msg += fmt.Sprintf("\n⛔ стратегия остановлена. Чтобы продолжить, удалите %s из %s", s.Key(), b.state.path)
 			}
 		case slLeft && !tpLeft:
 			b.logf(s, "Take profit, martingale series closed")
 			st.Loss, st.Losses = 0, 0
 		default:
 			st.Loss, st.Losses = 0, 0
-			msg = fmt.Sprintf("⚠️ %s %s: не понять, чем закрылась сделка (у бота нет её стоп-ордеров), серия мартингейла сброшена", s.Symbol, s.Timeframe)
+			msg = fmt.Sprintf("⚠️ %s: не понять, чем закрылась сделка (у бота нет её стоп-ордеров), серия мартингейла сброшена", title(s))
 		}
 	})
 	if msg != "" {
@@ -129,27 +143,27 @@ func (b *Bot) settle(s config.StrategyConfig) error {
 	return err
 }
 
-// martingaleStake is the USDT to buy for: the base stake while no stop loss
+// martingaleStake is the USDT order value: the base stake while no stop loss
 // is to be won back, then base + martingale * series loss / TP return, so the
 // next take profit brings the usual profit plus the loss times martingale.
 // ok is false when the balance can not cover it: the strategy is stopped.
 func (b *Bot) martingaleStake(s config.StrategyConfig, quoteBalance, lastClose float64) (stake, base float64, ok bool, err error) {
-	cur := b.state.get(s.Symbol)
+	cur := b.state.get(s.Key())
 	if cur.Losses == 0 {
 		base = quoteBalance * s.DepositPercent / 100
 		return base, base, true, nil
 	}
-	tp, _ := TpSlPrices(lastClose, s.TakeProfit, s.StopLoss, *s.Decimals)
-	stake = cur.Base + s.Martingale*cur.Loss/((tp-lastClose)/lastClose)
+	tp, _ := TpSlPrices(lastClose, s.TakeProfit, s.StopLoss, *s.Decimals, s.Short())
+	stake = cur.Base + s.Martingale*cur.Loss/(math.Abs(tp-lastClose)/lastClose)
 	if stake <= quoteBalance {
 		return stake, cur.Base, true, nil
 	}
 
-	err = b.state.update(s.Symbol, func(st *seriesState) {
+	err = b.state.update(s.Key(), func(st *seriesState) {
 		st.Stopped = fmt.Sprintf("stake %.2f USDT is above the balance %.2f USDT", stake, quoteBalance)
 	})
-	b.notifyf(s, "⛔ %s %s: на ставку мартингейла нужно %.2f USDT, а на балансе %.2f. Стратегия остановлена; чтобы продолжить, удалите %s из %s",
-		s.Symbol, s.Timeframe, stake, quoteBalance, s.Symbol, b.state.path)
+	b.notifyf(s, "⛔ %s: на ставку мартингейла нужно %.2f USDT, а на балансе %.2f. Стратегия остановлена; чтобы продолжить, удалите %s из %s",
+		title(s), stake, quoteBalance, s.Key(), b.state.path)
 	return 0, 0, false, err
 }
 

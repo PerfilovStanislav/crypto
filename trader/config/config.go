@@ -22,14 +22,6 @@ type TelegramConfig struct {
 	ChatID string `yaml:"chat_id"`
 }
 
-type DBConfig struct {
-	Host     string `yaml:"host"`
-	Port     int    `yaml:"port"`
-	User     string `yaml:"user"`
-	Password string `yaml:"password"`
-	Database string `yaml:"database"`
-}
-
 type IndicatorConfig struct {
 	Type   string  `yaml:"type"`
 	Source string  `yaml:"source"`
@@ -37,7 +29,10 @@ type IndicatorConfig struct {
 }
 
 type StrategyConfig struct {
-	Symbol         string  `yaml:"symbol"`
+	Symbol string `yaml:"symbol"`
+	// Direction is "buy" (long) or "sell" (short), as analyzer.direction;
+	// empty means "buy".
+	Direction      string  `yaml:"direction"`
 	Timeframe      string  `yaml:"timeframe"`
 	DepositPercent float64 `yaml:"deposit_percent"`
 	// TakeProfit and StopLoss are offsets from the entry price in units of
@@ -61,7 +56,6 @@ type StrategyConfig struct {
 
 type Config struct {
 	Bybit      BybitConfig      `yaml:"bybit"`
-	DB         DBConfig         `yaml:"db"`
 	Telegram   TelegramConfig   `yaml:"telegram"`
 	Strategies []StrategyConfig `yaml:"strategies"`
 	// StateFile keeps the martingale series between restarts.
@@ -79,6 +73,11 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
+	for i := range cfg.Strategies {
+		if cfg.Strategies[i].Direction == "" {
+			cfg.Strategies[i].Direction = "buy"
+		}
+	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -97,17 +96,21 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("telegram: set both token and chat_id, or neither")
 	}
 
-	// The bot treats the whole base coin balance as the strategy's position,
-	// so two strategies on one symbol would fight over it.
+	// In hedge mode a strategy owns one side of the symbol's position (long or
+	// short) and tells from its size whether it is in a trade, so two strategies
+	// on one side would fight over it.
 	seen := make(map[string]bool)
 	for _, s := range c.Strategies {
 		if s.Symbol == "" {
 			return fmt.Errorf("strategy without symbol")
 		}
-		if seen[s.Symbol] {
-			return fmt.Errorf("strategy %s: only one strategy per symbol is supported", s.Symbol)
+		if s.Direction != "buy" && s.Direction != "sell" {
+			return fmt.Errorf("strategy %s: direction must be buy or sell, got %q", s.Symbol, s.Direction)
 		}
-		seen[s.Symbol] = true
+		if seen[s.Key()] {
+			return fmt.Errorf("strategy %s %s: only one strategy per symbol and direction is supported", s.Symbol, s.Direction)
+		}
+		seen[s.Key()] = true
 
 		if s.Decimals == nil {
 			return fmt.Errorf("strategy %s: decimals is required (same value as in the analyzer config)", s.Symbol)
@@ -133,6 +136,20 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+// Short reports a sell (short) strategy.
+func (s StrategyConfig) Short() bool {
+	return s.Direction == "sell"
+}
+
+// Key names the strategy in logs, order link ids and state_file: "SOLUSDT-L"
+// for the long, "SOLUSDT-S" for the short.
+func (s StrategyConfig) Key() string {
+	if s.Short() {
+		return s.Symbol + "-S"
+	}
+	return s.Symbol + "-L"
 }
 
 func (ic IndicatorConfig) validate() error {

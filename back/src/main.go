@@ -32,8 +32,9 @@ func run() error {
 	runtime.ReadMemStats(&m)
 
 	cfg := config.Init()
-	if cfg.Analyzer.Active && cfg.Analyzer.Direction == "sell" {
-		return fmt.Errorf("analyzer.direction sell: the strategy search supports only buy for now")
+	// Иначе и перебор, и HTTP API молча считали бы шорт и мартингейл как обычный лонг.
+	if cfg.Analyzer.Direction == "sell" || cfg.Analyzer.Martingale > 0 {
+		return fmt.Errorf("the Go version supports only direction buy without martingale; use back-rs")
 	}
 	log := logger.New(cfg.Log)
 

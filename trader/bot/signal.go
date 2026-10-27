@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"trader/config"
-	"trader/db"
+	"trader/exchange"
 	"trader/indicator"
 	"trader/source"
 )
@@ -18,7 +18,7 @@ const minSignalCandles = 100
 // (analyzer.CompareIndicators): indicator2 > indicator1 on the last candle.
 // It is a state, not a crossing: the backtest enters on every candle where it
 // holds while no trade is open, so the bot does the same.
-func Signal(candles []db.Candle, s config.StrategyConfig) (bool, error) {
+func Signal(candles []exchange.Candle, s config.StrategyConfig) (bool, error) {
 	if len(candles) < minSignalCandles {
 		return false, fmt.Errorf("not enough candles: %d < %d", len(candles), minSignalCandles)
 	}
@@ -59,7 +59,7 @@ func indicatorValues(quotes source.Quotes, ic config.IndicatorConfig) ([]float64
 // closedCandles returns candles up to and including the one that starts at
 // expected. The candle counts as closed only when Bybit already lists a newer
 // one after it; until then ok is false and the caller should poll again.
-func closedCandles(candles []db.Candle, expected time.Time) (closed []db.Candle, ok bool) {
+func closedCandles(candles []exchange.Candle, expected time.Time) (closed []exchange.Candle, ok bool) {
 	for i, c := range candles {
 		if c.Timestamp.Equal(expected) {
 			if i == len(candles)-1 {
@@ -73,13 +73,17 @@ func closedCandles(candles []db.Candle, expected time.Time) (closed []db.Candle,
 
 // TpSlPrices converts analyzer offsets into absolute prices. In the analyzer
 // config take_profit/stop_loss are in units of 10^-decimals and are applied to
-// the entry price: high >= entry+tp closes in profit, low <= entry-sl in loss.
-func TpSlPrices(entry, takeProfit, stopLoss float64, decimals int) (tp, sl float64) {
+// the entry price: a long closes in profit at entry+tp and in loss at entry-sl,
+// a short the other way round.
+func TpSlPrices(entry, takeProfit, stopLoss float64, decimals int, short bool) (tp, sl float64) {
 	factor := math.Pow10(decimals)
+	if short {
+		return entry - takeProfit/factor, entry + stopLoss/factor
+	}
 	return entry + takeProfit/factor, entry - stopLoss/factor
 }
 
-func buildQuotes(candles []db.Candle) source.Quotes {
+func buildQuotes(candles []exchange.Candle) source.Quotes {
 	q := source.Quotes{}
 	for _, c := range candles {
 		q.Opens = append(q.Opens, c.Open)

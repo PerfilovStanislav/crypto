@@ -1,7 +1,7 @@
 # back-rs
 
 Rust-версия `back/`. Делает то же, что Go-версия:
-- докачивает свечи Bybit в ClickHouse;
+- докачивает в ClickHouse свечи USDT-бессрочных фьючерсов Bybit (`category=linear`): на них торгует trader;
 - перебирает стратегии «индикатор × индикатор × TP/SL»;
 - отдаёт фронту `POST /api/get_quotes` (protobuf из `core/api/quotes.proto`).
 

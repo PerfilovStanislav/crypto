@@ -162,14 +162,15 @@ func timeframeDuration(tf string) time.Duration {
 	}
 }
 
-// fetchBybitKlines gets candles from Bybit v5 public API.
+// fetchBybitKlines gets USDT perpetual candles from Bybit v5 public API (the
+// same table as back-rs, which trades the perpetuals).
 func fetchBybitKlines(symbol, interval string, startMs, endMs int64) ([][]string, error) {
 	u, err := url.Parse("https://api.bybit.com/v5/market/kline")
 	if err != nil {
 		return nil, err
 	}
 	q := u.Query()
-	q.Set("category", "spot")
+	q.Set("category", "linear")
 	q.Set("symbol", symbol)
 	q.Set("interval", IntervalToMinutes(interval))
 	q.Set("limit", "1000")

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,7 +16,6 @@ import (
 	"time"
 
 	"trader/config"
-	"trader/db"
 )
 
 const defaultBaseURL = "https://api.bybit.com"
@@ -47,6 +47,22 @@ func (c *Client) sign(timestamp, payload string) string {
 	mac := hmac.New(sha256.New, []byte(c.apiSecret))
 	mac.Write([]byte(val))
 	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// APIError is a business error Bybit reports with HTTP 200 and retCode != 0.
+type APIError struct {
+	Path string
+	Code int
+	Msg  string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("bybit %s: retCode %d: %s", e.Path, e.Code, e.Msg)
+}
+
+func isRetCode(err error, code int) bool {
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && apiErr.Code == code
 }
 
 type apiResponse struct {
@@ -114,7 +130,7 @@ func (c *Client) do(req *http.Request) (json.RawMessage, error) {
 		return nil, fmt.Errorf("bybit %s: decode response: %w", req.URL.Path, err)
 	}
 	if r.RetCode != 0 {
-		return nil, fmt.Errorf("bybit %s: retCode %d: %s", req.URL.Path, r.RetCode, r.RetMsg)
+		return nil, &APIError{Path: req.URL.Path, Code: r.RetCode, Msg: r.RetMsg}
 	}
 
 	return r.Result, nil
@@ -149,17 +165,27 @@ func Interval(timeframe string) (string, error) {
 	return "", fmt.Errorf("unsupported timeframe: %s", timeframe)
 }
 
-// GetKlines fetches spot candles, oldest first. The last one is the current,
-// still unfinished candle. Candle.Timeframe is the config timeframe ("4h"),
-// which is what the ClickHouse Enum8 column accepts.
-func (c *Client) GetKlines(symbol, timeframe string, limit int) ([]db.Candle, error) {
+// Candle is the OHLCV of the candle that started at Timestamp (UTC).
+type Candle struct {
+	Timestamp time.Time
+	Low       float64
+	Open      float64
+	Close     float64
+	High      float64
+	Volume    float64
+}
+
+// GetKlines fetches USDT perpetual candles, oldest first: the market the bot
+// trades and the analyzer backtests. The last candle is the current, still
+// unfinished one.
+func (c *Client) GetKlines(symbol, timeframe string, limit int) ([]Candle, error) {
 	interval, err := Interval(timeframe)
 	if err != nil {
 		return nil, err
 	}
 
 	query := url.Values{}
-	query.Set("category", "spot")
+	query.Set("category", "linear")
 	query.Set("symbol", symbol)
 	query.Set("interval", interval)
 	query.Set("limit", strconv.Itoa(limit))
@@ -176,7 +202,7 @@ func (c *Client) GetKlines(symbol, timeframe string, limit int) ([]db.Candle, er
 		return nil, err
 	}
 
-	candles := make([]db.Candle, 0, len(kr.List))
+	candles := make([]Candle, 0, len(kr.List))
 	for _, k := range kr.List {
 		if len(k) < 6 {
 			return nil, fmt.Errorf("kline: unexpected row %v", k)
@@ -193,9 +219,7 @@ func (c *Client) GetKlines(symbol, timeframe string, limit int) ([]db.Candle, er
 			}
 		}
 
-		candles = append(candles, db.Candle{
-			Symbol:    symbol,
-			Timeframe: timeframe,
+		candles = append(candles, Candle{
 			Timestamp: time.UnixMilli(ts).UTC(),
 			Open:      vals[0],
 			High:      vals[1],
@@ -213,10 +237,10 @@ func (c *Client) GetKlines(symbol, timeframe string, limit int) ([]db.Candle, er
 	return candles, nil
 }
 
-// GetInstrument loads spot trading rules (tick size, lot precision, minimums).
+// GetInstrument loads USDT perpetual trading rules (tick size, qty step, minimums).
 func (c *Client) GetInstrument(symbol string) (Instrument, error) {
 	query := url.Values{}
-	query.Set("category", "spot")
+	query.Set("category", "linear")
 	query.Set("symbol", symbol)
 
 	result, err := c.get("/v5/market/instruments-info", query, false)
@@ -230,10 +254,9 @@ func (c *Client) GetInstrument(symbol string) (Instrument, error) {
 			BaseCoin      string `json:"baseCoin"`
 			QuoteCoin     string `json:"quoteCoin"`
 			LotSizeFilter struct {
-				BasePrecision  string `json:"basePrecision"`
-				QuotePrecision string `json:"quotePrecision"`
-				MinOrderQty    string `json:"minOrderQty"`
-				MinOrderAmt    string `json:"minOrderAmt"`
+				QtyStep          string `json:"qtyStep"`
+				MinOrderQty      string `json:"minOrderQty"`
+				MinNotionalValue string `json:"minNotionalValue"`
 			} `json:"lotSizeFilter"`
 			PriceFilter struct {
 				TickSize string `json:"tickSize"`
@@ -250,18 +273,74 @@ func (c *Client) GetInstrument(symbol string) (Instrument, error) {
 		}
 		return NewInstrument(it.BaseCoin, it.QuoteCoin,
 			it.PriceFilter.TickSize,
-			it.LotSizeFilter.BasePrecision,
-			it.LotSizeFilter.QuotePrecision,
+			it.LotSizeFilter.QtyStep,
 			it.LotSizeFilter.MinOrderQty,
-			it.LotSizeFilter.MinOrderAmt,
+			it.LotSizeFilter.MinNotionalValue,
 		)
 	}
 	return Instrument{}, fmt.Errorf("instrument %s not found", symbol)
 }
 
-// GetCoinBalance returns the unified account wallet balance of a coin, 0 if
-// the coin is absent.
-func (c *Client) GetCoinBalance(coin string) (float64, error) {
+// SetupHedge switches a USDT perpetual to hedge mode, where a long and a short
+// are separate positions (positionIdx 1 and 2), and sets leverage 1x on both
+// sides, so a position never needs more margin than its value. Both calls are
+// no-ops when already set (retCodes 110025 and 110043).
+func (c *Client) SetupHedge(symbol string) error {
+	_, err := c.post("/v5/position/switch-mode", map[string]any{
+		"category": "linear",
+		"symbol":   symbol,
+		"mode":     3,
+	})
+	if err != nil && !isRetCode(err, 110025) {
+		return fmt.Errorf("switch %s to hedge mode: %w", symbol, err)
+	}
+	_, err = c.post("/v5/position/set-leverage", map[string]string{
+		"category":     "linear",
+		"symbol":       symbol,
+		"buyLeverage":  "1",
+		"sellLeverage": "1",
+	})
+	if err != nil && !isRetCode(err, 110043) {
+		return fmt.Errorf("set %s leverage 1x: %w", symbol, err)
+	}
+	return nil
+}
+
+// GetPositionSize returns the size (in the base coin) of one side of a
+// hedge-mode position: positionIdx 1 is the long, 2 the short. 0 means flat.
+func (c *Client) GetPositionSize(symbol string, positionIdx int) (float64, error) {
+	query := url.Values{}
+	query.Set("category", "linear")
+	query.Set("symbol", symbol)
+
+	result, err := c.get("/v5/position/list", query, true)
+	if err != nil {
+		return 0, err
+	}
+
+	var pr struct {
+		List []struct {
+			Symbol      string `json:"symbol"`
+			PositionIdx int    `json:"positionIdx"`
+			Size        string `json:"size"`
+		} `json:"list"`
+	}
+	if err := json.Unmarshal(result, &pr); err != nil {
+		return 0, err
+	}
+	for _, p := range pr.List {
+		if p.Symbol == symbol && p.PositionIdx == positionIdx {
+			return parseOptionalFloat(p.Size)
+		}
+	}
+	return 0, nil
+}
+
+// GetFreeBalance returns how much of a coin the unified account can still put
+// into new orders: the wallet balance minus the margin held by open positions
+// and orders (on futures the wallet balance does not drop when a position
+// opens). 0 if the coin is absent.
+func (c *Client) GetFreeBalance(coin string) (float64, error) {
 	query := url.Values{}
 	query.Set("accountType", "UNIFIED")
 	query.Set("coin", coin)
@@ -274,8 +353,10 @@ func (c *Client) GetCoinBalance(coin string) (float64, error) {
 	var wr struct {
 		List []struct {
 			Coin []struct {
-				Coin          string `json:"coin"`
-				WalletBalance string `json:"walletBalance"`
+				Coin            string `json:"coin"`
+				WalletBalance   string `json:"walletBalance"`
+				TotalPositionIM string `json:"totalPositionIM"`
+				TotalOrderIM    string `json:"totalOrderIM"`
 			} `json:"coin"`
 		} `json:"list"`
 	}
@@ -285,58 +366,71 @@ func (c *Client) GetCoinBalance(coin string) (float64, error) {
 
 	for _, acc := range wr.List {
 		for _, cb := range acc.Coin {
-			if cb.Coin == coin {
-				return parseOptionalFloat(cb.WalletBalance)
+			if cb.Coin != coin {
+				continue
 			}
+			var v [3]float64
+			for i, s := range []string{cb.WalletBalance, cb.TotalPositionIM, cb.TotalOrderIM} {
+				if v[i], err = parseOptionalFloat(s); err != nil {
+					return 0, fmt.Errorf("%s balance: %w", coin, err)
+				}
+			}
+			return v[0] - v[1] - v[2], nil
 		}
 	}
 	return 0, nil
 }
 
 type OrderRequest struct {
-	Category     string `json:"category"`
-	Symbol       string `json:"symbol"`
-	Side         string `json:"side"`
-	OrderType    string `json:"orderType"`
-	Qty          string `json:"qty"`
-	MarketUnit   string `json:"marketUnit,omitempty"`
-	TriggerPrice string `json:"triggerPrice,omitempty"`
-	OrderFilter  string `json:"orderFilter,omitempty"`
-	OrderLinkID  string `json:"orderLinkId,omitempty"`
+	Category         string `json:"category"`
+	Symbol           string `json:"symbol"`
+	Side             string `json:"side"`
+	OrderType        string `json:"orderType"`
+	Qty              string `json:"qty"`
+	PositionIdx      int    `json:"positionIdx"`
+	TriggerPrice     string `json:"triggerPrice,omitempty"`
+	TriggerDirection int    `json:"triggerDirection,omitempty"`
+	ReduceOnly       bool   `json:"reduceOnly,omitempty"`
+	OrderLinkID      string `json:"orderLinkId,omitempty"`
 }
 
-// MarketBuyByQuote buys for quoteQty of the quote coin (USDT). Bybit v5 spot
-// treats a Market Buy qty as quote coin by default; marketUnit makes it explicit.
-// Spot TP/SL can only be attached to Limit orders, so exits are placed
-// separately with StopMarketSell.
-func MarketBuyByQuote(symbol, quoteQty, orderLinkID string) OrderRequest {
+// Trigger directions of a conditional order.
+const (
+	TriggerRise = 1 // fires when the last price rises to triggerPrice
+	TriggerFall = 2 // fires when the last price falls to triggerPrice
+)
+
+// MarketOrder is a USDT perpetual market order for qty of the base coin on the
+// hedge-mode side positionIdx: it opens (or, with reduceOnly, closes) that side.
+func MarketOrder(symbol, side, qty string, positionIdx int, reduceOnly bool, orderLinkID string) OrderRequest {
 	return OrderRequest{
-		Category:    "spot",
+		Category:    "linear",
 		Symbol:      symbol,
-		Side:        "Buy",
+		Side:        side,
 		OrderType:   "Market",
-		Qty:         quoteQty,
-		MarketUnit:  "quoteCoin",
-		OrderFilter: "Order",
+		Qty:         qty,
+		PositionIdx: positionIdx,
+		ReduceOnly:  reduceOnly,
 		OrderLinkID: orderLinkID,
 	}
 }
 
-// StopMarketSell is a spot conditional order (orderFilter=StopOrder): a market
-// sell of baseQty once the last price reaches triggerPrice. Unlike tpslOrder it
-// does not lock the coins until triggered, so a TP and an SL can both cover the
-// whole position. marketUnit is not supported for conditional orders; a market
-// sell qty is in the base coin by default.
-func StopMarketSell(symbol, baseQty, triggerPrice, orderLinkID string) OrderRequest {
+// StopMarket is a conditional reduce-only market order: once the last price
+// crosses triggerPrice in triggerDirection it closes qty of the side
+// positionIdx. TP and SL are two such orders with the strategy's own
+// orderLinkId, so the bot can tell its exits from any other order.
+func StopMarket(symbol, side, qty, triggerPrice string, triggerDirection, positionIdx int, orderLinkID string) OrderRequest {
 	return OrderRequest{
-		Category:     "spot",
-		Symbol:       symbol,
-		Side:         "Sell",
-		OrderType:    "Market",
-		Qty:          baseQty,
-		TriggerPrice: triggerPrice,
-		OrderFilter:  "StopOrder",
-		OrderLinkID:  orderLinkID,
+		Category:         "linear",
+		Symbol:           symbol,
+		Side:             side,
+		OrderType:        "Market",
+		Qty:              qty,
+		PositionIdx:      positionIdx,
+		TriggerPrice:     triggerPrice,
+		TriggerDirection: triggerDirection,
+		ReduceOnly:       true,
+		OrderLinkID:      orderLinkID,
 	}
 }
 
@@ -424,7 +518,7 @@ func (c *Client) listOrders(query url.Values) ([]Order, error) {
 // or not yet visible.
 func (c *Client) GetClosedOrder(symbol, orderID string) (order Order, found bool, err error) {
 	query := url.Values{}
-	query.Set("category", "spot")
+	query.Set("category", "linear")
 	query.Set("symbol", symbol)
 	query.Set("orderId", orderID)
 	query.Set("openOnly", "1")
@@ -441,23 +535,22 @@ func (c *Client) GetClosedOrder(symbol, orderID string) (order Order, found bool
 	return Order{}, false, nil
 }
 
-// GetOpenStopOrders lists untriggered spot conditional orders of a symbol.
+// GetOpenStopOrders lists untriggered conditional orders of a USDT perpetual.
 func (c *Client) GetOpenStopOrders(symbol string) ([]Order, error) {
 	query := url.Values{}
-	query.Set("category", "spot")
+	query.Set("category", "linear")
 	query.Set("symbol", symbol)
 	query.Set("orderFilter", "StopOrder")
-	query.Set("limit", "50") // spot allows at most 30 open conditional orders
+	query.Set("limit", "50") // the maximum page; the bot keeps 2 per strategy
 
 	return c.listOrders(query)
 }
 
 func (c *Client) CancelStopOrder(symbol, orderID string) error {
 	_, err := c.post("/v5/order/cancel", map[string]string{
-		"category":    "spot",
-		"symbol":      symbol,
-		"orderId":     orderID,
-		"orderFilter": "StopOrder",
+		"category": "linear",
+		"symbol":   symbol,
+		"orderId":  orderID,
 	})
 	return err
 }

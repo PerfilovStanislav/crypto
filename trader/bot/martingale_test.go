@@ -2,6 +2,7 @@ package bot
 
 import (
 	"math"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -14,7 +15,7 @@ import (
 
 func newMartingaleBot(t *testing.T, ex Exchange, path string) *Bot {
 	t.Helper()
-	b := newTestBot(ex, nil)
+	b := newTestBot(ex)
 	st, err := loadState(path)
 	if err != nil {
 		t.Fatal(err)
@@ -48,32 +49,38 @@ func parse(t *testing.T, v string) float64 {
 }
 
 // closeDeal fires one exit ("sl" or "tp") of the last entry, as Bybit would:
-// the coins are sold at its trigger price and the other exit keeps waiting.
+// the side is closed at the trigger price and the other exit keeps waiting.
 func closeDeal(t *testing.T, ex *fakeExchange, exit string) {
 	t.Helper()
 	n := len(ex.placed)
-	fired, waiting := ex.placed[n-2], ex.placed[n-1] // enter places buy, sl, tp
+	fired, waiting := ex.placed[n-2], ex.placed[n-1] // enter places open, sl, tp
 	if exit == "tp" {
 		fired, waiting = waiting, fired
 	}
 	qty := parse(t, fired.Qty)
-	ex.balances["SOL"] -= qty
-	ex.balances["USDT"] += qty * parse(t, fired.TriggerPrice)
+	pnl := qty * (parse(t, fired.TriggerPrice) - ex.fillPrice)
+	if fired.Side == "Buy" { // closing a short
+		pnl = -pnl
+	}
+	ex.positions[fired.PositionIdx] -= qty
+	ex.usdt += pnl
 	ex.stopOrders = []exchange.Order{{OrderID: waiting.OrderLinkID, OrderLinkID: waiting.OrderLinkID, Status: "Untriggered"}}
 }
 
-func buys(t *testing.T, ex *fakeExchange) []float64 {
+// stakes are the USDT values of the entries at the last close 150.
+func stakes(t *testing.T, ex *fakeExchange) []float64 {
 	t.Helper()
 	var out []float64
 	for _, o := range ex.placed {
-		if o.Side == "Buy" {
-			out = append(out, parse(t, o.Qty))
+		if o.TriggerPrice == "" && !o.ReduceOnly {
+			out = append(out, parse(t, o.Qty)*150)
 		}
 	}
 	return out
 }
 
-func near(a, b float64) bool { return math.Abs(a-b) < 1e-5 }
+// near compares USDT values up to one qty step (0.0001 SOL at 150).
+func near(a, b float64) bool { return math.Abs(a-b) <= 0.0151 }
 
 func TestMartingaleStakeAfterStopLossAndTakeProfit(t *testing.T) {
 	ex := newFakeExchange(t)
@@ -84,24 +91,24 @@ func TestMartingaleStakeAfterStopLossAndTakeProfit(t *testing.T) {
 	closeDeal(t, ex, "sl")
 	tradeAt(t, b, s, 1)
 
-	// Bought 0.3327 SOL, SL at 150.123 - 15; TP return from the last close: 20/150.
-	loss := 50 - 0.3327*135.123
-	st := b.state.get("SOLUSDT")
-	if st.Losses != 1 || !near(st.Loss, loss) || st.Base != 50 {
+	// Opened 0.3333 SOL at 150.123, SL 15 lower; TP return from the last close: 20/150.
+	loss := 0.3333 * 15.0
+	st := b.state.get("SOLUSDT-L")
+	if st.Losses != 1 || math.Abs(st.Loss-loss) > 1e-9 || st.Base != 50 {
 		t.Fatalf("state after SL: %+v, want loss %v", st, loss)
 	}
-	got := buys(t, ex)
+	got := stakes(t, ex)
 	if want := 50 + 1.2*loss/(20.0/150); len(got) != 2 || !near(got[1], want) {
 		t.Fatalf("buys %v, want 50 then %v", got, want)
 	}
 
 	closeDeal(t, ex, "tp")
-	balance := ex.balances["USDT"]
+	balance := ex.usdt
 	tradeAt(t, b, s, 2)
-	if st := b.state.get("SOLUSDT"); st.Losses != 0 || st.Loss != 0 {
+	if st := b.state.get("SOLUSDT-L"); st.Losses != 0 || st.Loss != 0 {
 		t.Fatalf("state after TP: %+v", st)
 	}
-	if got := buys(t, ex); len(got) != 3 || !near(got[2], balance*0.05) {
+	if got := stakes(t, ex); len(got) != 3 || !near(got[2], balance*0.05) {
 		t.Fatalf("buys %v, want the base stake %v after TP", got, balance*0.05)
 	}
 }
@@ -116,10 +123,10 @@ func TestMartingaleStopsAfterMaxLosses(t *testing.T) {
 	tradeAt(t, b, s, 1)
 	tradeAt(t, b, s, 2)
 
-	if got := buys(t, ex); len(got) != 1 {
+	if got := stakes(t, ex); len(got) != 1 {
 		t.Fatalf("buys %v: a stopped strategy must not enter", got)
 	}
-	if st := b.state.get("SOLUSDT"); st.Stopped == "" {
+	if st := b.state.get("SOLUSDT-L"); st.Stopped == "" {
 		t.Fatalf("state %+v, want stopped", st)
 	}
 	sent := strings.Join(b.notify.(*fakeNotifier).sent, "\n")
@@ -135,13 +142,13 @@ func TestMartingaleStopsWhenBalanceIsShort(t *testing.T) {
 
 	tradeAt(t, b, s, 0)
 	closeDeal(t, ex, "sl")
-	ex.balances["USDT"] = 60 // the next stake is ~95 USDT
+	ex.usdt = 60 // the next stake is ~95 USDT
 	tradeAt(t, b, s, 1)
 
-	if got := buys(t, ex); len(got) != 1 {
+	if got := stakes(t, ex); len(got) != 1 {
 		t.Fatalf("buys %v", got)
 	}
-	if st := b.state.get("SOLUSDT"); !strings.Contains(st.Stopped, "balance") {
+	if st := b.state.get("SOLUSDT-L"); !strings.Contains(st.Stopped, "balance") {
 		t.Fatalf("state %+v", st)
 	}
 	if sent := b.notify.(*fakeNotifier).sent; !strings.Contains(sent[len(sent)-1], "на ставку мартингейла") {
@@ -158,10 +165,10 @@ func TestMartingaleStateSurvivesRestart(t *testing.T) {
 	restarted := newMartingaleBot(t, ex, path)
 	tradeAt(t, restarted, martingaleStrategy(5), 1)
 
-	if st := restarted.state.get("SOLUSDT"); st.Losses != 1 || st.Open == nil {
+	if st := restarted.state.get("SOLUSDT-L"); st.Losses != 1 || st.Open == nil {
 		t.Fatalf("state after restart: %+v", st)
 	}
-	if got := buys(t, ex); len(got) != 2 || got[1] <= 50 {
+	if got := stakes(t, ex); len(got) != 2 || got[1] <= 50 {
 		t.Fatalf("buys %v, want a bigger stake after the SL", got)
 	}
 }
@@ -178,10 +185,55 @@ func TestMartingaleUnknownExitResetsSeries(t *testing.T) {
 	ex.stopOrders = nil // both exits gone, e.g. cancelled by hand
 	tradeAt(t, b, s, 2)
 
-	if st := b.state.get("SOLUSDT"); st.Losses != 0 || st.Loss != 0 {
+	if st := b.state.get("SOLUSDT-L"); st.Losses != 0 || st.Loss != 0 {
 		t.Fatalf("state %+v, want a reset series", st)
 	}
 	if sent := b.notify.(*fakeNotifier).sent; !strings.Contains(strings.Join(sent, "\n"), "серия мартингейла сброшена") {
 		t.Errorf("notifications %q", sent)
+	}
+}
+
+// A short loses when the price rises to its SL: the loss is qty × (SL − entry),
+// the same as a long's qty × (entry − SL).
+func TestMartingaleShortStopLoss(t *testing.T) {
+	ex := newFakeExchange(t)
+	b := newMartingaleBot(t, ex, filepath.Join(t.TempDir(), "state.json"))
+	s := short(martingaleStrategy(5))
+
+	tradeAt(t, b, s, 0)
+	closeDeal(t, ex, "sl")
+	tradeAt(t, b, s, 1)
+
+	loss := 0.3333 * 15.0
+	if st := b.state.get("SOLUSDT-S"); st.Losses != 1 || math.Abs(st.Loss-loss) > 1e-9 {
+		t.Fatalf("state %+v, want loss %v", st, loss)
+	}
+	if got := stakes(t, ex); len(got) != 2 || !near(got[1], 50+1.2*loss/(20.0/150)) {
+		t.Fatalf("stakes %v", got)
+	}
+	if ex.positions[2] <= 0 || ex.positions[1] != 0 {
+		t.Fatalf("positions %v: want only a short", ex.positions)
+	}
+}
+
+// The spot version stored the series under the symbol; a stop it set must
+// survive the upgrade, while its open spot deal is dropped.
+func TestMartingaleStateFromSpotVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	old := `{"SOLUSDT": {"base": 50, "loss": 20, "losses": 5, "stopped": "5 stop losses in a row",
+		"open": {"link_id": "tb-SOLUSDT-1", "spent": 50, "qty": 0.33, "sl_price": 135}}}`
+	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ex := newFakeExchange(t)
+	b := newMartingaleBot(t, ex, path)
+
+	st := b.state.get("SOLUSDT-L")
+	if st.Losses != 5 || st.Stopped == "" || st.Open != nil {
+		t.Fatalf("migrated state %+v", st)
+	}
+	tradeAt(t, b, martingaleStrategy(5), 0)
+	if len(ex.placed) != 0 {
+		t.Fatalf("placed %+v: a strategy stopped before the upgrade must stay stopped", ex.placed)
 	}
 }

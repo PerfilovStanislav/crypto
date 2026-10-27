@@ -33,7 +33,8 @@ struct KlineResult {
     list: Vec<Vec<String>>,
 }
 
-/// До 1000 свечей спота в `[start_ms, end_ms]`, новые первыми — как отдаёт Bybit.
+/// До 1000 свечей USDT-бессрочного фьючерса в `[start_ms, end_ms]`, новые первыми — как отдаёт
+/// Bybit. Фьючерсы, а не спот: на них торгует trader, и TP/SL срабатывают по их цене.
 pub async fn fetch_klines(
     http: &reqwest::Client,
     symbol: &str,
@@ -46,7 +47,7 @@ pub async fn fetch_klines(
     let resp = http
         .get(KLINE_URL)
         .query(&[
-            ("category", "spot"),
+            ("category", "linear"),
             ("symbol", symbol),
             ("interval", timeframe.bybit_interval()),
             ("limit", "1000"),

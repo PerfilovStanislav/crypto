@@ -7,31 +7,29 @@ import (
 	"strings"
 )
 
-// Instrument holds the spot trading rules of a symbol. Steps are kept with
-// their decimal count so formatted values never carry float noise.
+// Instrument holds the USDT perpetual trading rules of a symbol. Steps are kept
+// with their decimal count so formatted values never carry float noise.
 type Instrument struct {
 	BaseCoin  string
 	QuoteCoin string
 
-	TickSize       float64
-	BasePrecision  float64
-	QuotePrecision float64
-	MinOrderQty    float64
-	MinOrderAmt    float64
+	TickSize    float64
+	QtyStep     float64
+	MinOrderQty float64
+	// MinNotional is the smallest order value in QuoteCoin (5 USDT).
+	MinNotional float64
 
-	tickDecimals  int
-	baseDecimals  int
-	quoteDecimals int
+	tickDecimals int
+	qtyDecimals  int
 }
 
 // NewInstrument builds an Instrument from Bybit's string fields.
-func NewInstrument(baseCoin, quoteCoin, tickSize, basePrecision, quotePrecision, minOrderQty, minOrderAmt string) (Instrument, error) {
+func NewInstrument(baseCoin, quoteCoin, tickSize, qtyStep, minOrderQty, minNotional string) (Instrument, error) {
 	inst := Instrument{
-		BaseCoin:      baseCoin,
-		QuoteCoin:     quoteCoin,
-		tickDecimals:  stepDecimals(tickSize),
-		baseDecimals:  stepDecimals(basePrecision),
-		quoteDecimals: stepDecimals(quotePrecision),
+		BaseCoin:     baseCoin,
+		QuoteCoin:    quoteCoin,
+		tickDecimals: stepDecimals(tickSize),
+		qtyDecimals:  stepDecimals(qtyStep),
 	}
 
 	fields := []struct {
@@ -40,13 +38,12 @@ func NewInstrument(baseCoin, quoteCoin, tickSize, basePrecision, quotePrecision,
 		pos bool
 	}{
 		{&inst.TickSize, tickSize, true},
-		{&inst.BasePrecision, basePrecision, true},
-		{&inst.QuotePrecision, quotePrecision, true},
+		{&inst.QtyStep, qtyStep, true},
 		{&inst.MinOrderQty, minOrderQty, false},
-		{&inst.MinOrderAmt, minOrderAmt, false},
+		{&inst.MinNotional, minNotional, false},
 	}
 	for _, f := range fields {
-		v, err := strconv.ParseFloat(f.val, 64)
+		v, err := parseOptionalFloat(f.val)
 		if err != nil {
 			return Instrument{}, fmt.Errorf("instrument: bad number %q: %w", f.val, err)
 		}
@@ -70,23 +67,20 @@ func (i Instrument) FormatPrice(p float64) string {
 	return strconv.FormatFloat(i.RoundPrice(p), 'f', i.tickDecimals, 64)
 }
 
-// FloorBaseQty floors a base coin quantity to the lot precision, so a sell
-// never asks for more than is held.
-func (i Instrument) FloorBaseQty(q float64) float64 {
-	return floorToStep(q, i.BasePrecision, i.baseDecimals)
+// FloorQty floors a base coin quantity to the qty step.
+func (i Instrument) FloorQty(q float64) float64 {
+	return floorToStep(q, i.QtyStep, i.qtyDecimals)
 }
 
-func (i Instrument) FormatBaseQty(q float64) string {
-	return strconv.FormatFloat(i.FloorBaseQty(q), 'f', i.baseDecimals, 64)
+func (i Instrument) FormatQty(q float64) string {
+	return strconv.FormatFloat(i.FloorQty(q), 'f', i.qtyDecimals, 64)
 }
 
-// FloorQuoteQty floors a quote coin amount to the quote precision.
-func (i Instrument) FloorQuoteQty(q float64) float64 {
-	return floorToStep(q, i.QuotePrecision, i.quoteDecimals)
-}
-
-func (i Instrument) FormatQuoteQty(q float64) string {
-	return strconv.FormatFloat(i.FloorQuoteQty(q), 'f', i.quoteDecimals, 64)
+// MinQty is the smallest quantity Bybit accepts at price: at least
+// minOrderQty and an order value of at least minNotionalValue.
+func (i Instrument) MinQty(price float64) float64 {
+	byValue := cleanDecimals(math.Ceil(i.MinNotional/price/i.QtyStep-eps)*i.QtyStep, i.qtyDecimals)
+	return math.Max(i.MinOrderQty, byValue)
 }
 
 // stepDecimals returns the number of significant fractional digits of a step

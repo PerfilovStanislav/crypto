@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -63,7 +64,7 @@ func decodeBody(t *testing.T, r *http.Request) (string, map[string]any) {
 	return string(raw), m
 }
 
-func TestMarketBuyByQuoteRequest(t *testing.T) {
+func TestMarketOrderRequest(t *testing.T) {
 	var body map[string]any
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/v5/order/create" {
@@ -75,10 +76,10 @@ func TestMarketBuyByQuoteRequest(t *testing.T) {
 		var raw string
 		raw, body = decodeBody(t, r)
 		checkSigned(t, r, raw)
-		io.WriteString(w, ok(`{"orderId":"1001","orderLinkId":"tb-SOLUSDT-1-buy"}`))
+		io.WriteString(w, ok(`{"orderId":"1001","orderLinkId":"tb-SOLUSDT-S-1-open"}`))
 	})
 
-	id, err := c.PlaceOrder(MarketBuyByQuote("SOLUSDT", "50.000000", "tb-SOLUSDT-1-buy"))
+	id, err := c.PlaceOrder(MarketOrder("SOLUSDT", "Sell", "0.3", 2, false, "tb-SOLUSDT-S-1-open"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,21 +88,20 @@ func TestMarketBuyByQuoteRequest(t *testing.T) {
 	}
 
 	want := map[string]any{
-		"category":    "spot",
+		"category":    "linear",
 		"symbol":      "SOLUSDT",
-		"side":        "Buy",
+		"side":        "Sell",
 		"orderType":   "Market",
-		"qty":         "50.000000", // USDT, not SOL
-		"marketUnit":  "quoteCoin",
-		"orderFilter": "Order",
-		"orderLinkId": "tb-SOLUSDT-1-buy",
+		"qty":         "0.3", // SOL
+		"positionIdx": 2.0,   // hedge mode, short side
+		"orderLinkId": "tb-SOLUSDT-S-1-open",
 	}
 	if !reflect.DeepEqual(body, want) {
 		t.Errorf("body = %v\nwant  %v", body, want)
 	}
 }
 
-func TestStopMarketSellRequest(t *testing.T) {
+func TestStopMarketRequest(t *testing.T) {
 	var body map[string]any
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		var raw string
@@ -110,21 +110,21 @@ func TestStopMarketSellRequest(t *testing.T) {
 		io.WriteString(w, ok(`{"orderId":"1002"}`))
 	})
 
-	if _, err := c.PlaceOrder(StopMarketSell("SOLUSDT", "0.3327", "135.12", "tb-SOLUSDT-1-sl")); err != nil {
+	if _, err := c.PlaceOrder(StopMarket("SOLUSDT", "Sell", "0.3", "135.12", TriggerFall, 1, "tb-SOLUSDT-L-1-sl")); err != nil {
 		t.Fatal(err)
 	}
 
-	// No takeProfit/stopLoss (unsupported on spot market orders) and no
-	// marketUnit (unsupported on conditional orders): qty is in SOL.
 	want := map[string]any{
-		"category":     "spot",
-		"symbol":       "SOLUSDT",
-		"side":         "Sell",
-		"orderType":    "Market",
-		"qty":          "0.3327",
-		"triggerPrice": "135.12",
-		"orderFilter":  "StopOrder",
-		"orderLinkId":  "tb-SOLUSDT-1-sl",
+		"category":         "linear",
+		"symbol":           "SOLUSDT",
+		"side":             "Sell",
+		"orderType":        "Market",
+		"qty":              "0.3",
+		"positionIdx":      1.0,
+		"triggerPrice":     "135.12",
+		"triggerDirection": 2.0, // a long's stop loss fires on a fall
+		"reduceOnly":       true,
+		"orderLinkId":      "tb-SOLUSDT-L-1-sl",
 	}
 	if !reflect.DeepEqual(body, want) {
 		t.Errorf("body = %v\nwant  %v", body, want)
@@ -136,9 +136,66 @@ func TestRetCodeIsAnError(t *testing.T) {
 		io.WriteString(w, `{"retCode":170131,"retMsg":"Insufficient balance.","result":{}}`)
 	})
 
-	_, err := c.PlaceOrder(MarketBuyByQuote("SOLUSDT", "50", "x"))
-	if err == nil || !strings.Contains(err.Error(), "170131") {
+	_, err := c.PlaceOrder(MarketOrder("SOLUSDT", "Buy", "0.3", 1, false, "x"))
+	if err == nil || !strings.Contains(err.Error(), "170131") || !isRetCode(err, 170131) {
 		t.Fatalf("err = %v, want retCode 170131", err)
+	}
+}
+
+func TestSetupHedge(t *testing.T) {
+	var switchBody, leverageBody map[string]any
+	switchCode := 110025 // already in hedge mode
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		raw, body := decodeBody(t, r)
+		checkSigned(t, r, raw)
+		switch r.URL.Path {
+		case "/v5/position/switch-mode":
+			switchBody = body
+			fmt.Fprintf(w, `{"retCode":%d,"retMsg":"Position mode is not modified","result":{}}`, switchCode)
+		case "/v5/position/set-leverage":
+			leverageBody = body
+			io.WriteString(w, ok(`{}`))
+		default:
+			t.Errorf("unexpected %s", r.URL.Path)
+		}
+	})
+
+	if err := c.SetupHedge("SOLUSDT"); err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]any{"category": "linear", "symbol": "SOLUSDT", "mode": 3.0}; !reflect.DeepEqual(switchBody, want) {
+		t.Errorf("switch-mode body = %v", switchBody)
+	}
+	if want := map[string]any{"category": "linear", "symbol": "SOLUSDT", "buyLeverage": "1", "sellLeverage": "1"}; !reflect.DeepEqual(leverageBody, want) {
+		t.Errorf("set-leverage body = %v", leverageBody)
+	}
+
+	// Any other refusal (e.g. an open one-way position) must stop the bot.
+	switchCode = 110024
+	if err := c.SetupHedge("SOLUSDT"); err == nil {
+		t.Fatal("want error")
+	}
+}
+
+func TestGetPositionSize(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v5/position/list" || r.URL.RawQuery != "category=linear&symbol=SOLUSDT" {
+			t.Errorf("got %s", r.URL)
+		}
+		checkSigned(t, r, r.URL.RawQuery)
+		io.WriteString(w, ok(`{"category":"linear","list":[
+			{"symbol":"SOLUSDT","positionIdx":1,"side":"Buy","size":"0.5"},
+			{"symbol":"SOLUSDT","positionIdx":2,"side":"","size":"0"}]}`))
+	})
+
+	for idx, want := range map[int]float64{1: 0.5, 2: 0} {
+		got, err := c.GetPositionSize("SOLUSDT", idx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("positionIdx %d: size %v, want %v", idx, got, want)
+		}
 	}
 }
 
@@ -147,25 +204,25 @@ func TestHTTPErrorIsAnError(t *testing.T) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 	})
 
-	if _, err := c.GetCoinBalance("USDT"); err == nil {
+	if _, err := c.GetFreeBalance("USDT"); err == nil {
 		t.Fatal("want error")
 	}
 }
 
-func TestGetKlinesStoresConfigTimeframe(t *testing.T) {
+func TestGetKlinesOldestFirstInUTC(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v5/market/kline" {
 			t.Errorf("path = %s", r.URL.Path)
 		}
 		q := r.URL.Query()
-		if q.Get("interval") != "240" || q.Get("category") != "spot" || q.Get("symbol") != "SOLUSDT" || q.Get("limit") != "1000" {
+		if q.Get("interval") != "240" || q.Get("category") != "linear" || q.Get("symbol") != "SOLUSDT" || q.Get("limit") != "1000" {
 			t.Errorf("query = %s", r.URL.RawQuery)
 		}
 		if r.Header.Get("X-BAPI-SIGN") != "" {
 			t.Error("public endpoint must not be signed")
 		}
 		// newest first, like Bybit
-		io.WriteString(w, ok(`{"category":"spot","symbol":"SOLUSDT","list":[
+		io.WriteString(w, ok(`{"category":"linear","symbol":"SOLUSDT","list":[
 			["1792094400000","106.01","106.1","105.87","105.94","1275.17","135195.1"],
 			["1792080000000","106.15","106.51","105.12","106.01","46034.77","4871482.1"]]}`))
 	})
@@ -179,9 +236,6 @@ func TestGetKlinesStoresConfigTimeframe(t *testing.T) {
 	}
 
 	first := candles[0]
-	if first.Timeframe != "4h" {
-		t.Errorf("Timeframe = %q, want the config value for the ClickHouse enum", first.Timeframe)
-	}
 	if !first.Timestamp.Equal(time.UnixMilli(1792080000000)) || first.Timestamp.Location() != time.UTC {
 		t.Errorf("first candle = %v, want oldest first in UTC", first.Timestamp)
 	}
@@ -204,17 +258,20 @@ func TestGetInstrument(t *testing.T) {
 		if r.URL.Path != "/v5/market/instruments-info" || r.URL.Query().Get("symbol") != "SOLUSDT" {
 			t.Errorf("got %s", r.URL)
 		}
-		// real SOLUSDT values
-		io.WriteString(w, ok(`{"category":"spot","list":[{"symbol":"SOLUSDT","baseCoin":"SOL","quoteCoin":"USDT",
-			"lotSizeFilter":{"basePrecision":"0.0001","quotePrecision":"0.000001","minOrderQty":"0.0001","minOrderAmt":"5"},
-			"priceFilter":{"tickSize":"0.01"}}]}`))
+		if r.URL.Query().Get("category") != "linear" {
+			t.Errorf("query = %s", r.URL.RawQuery)
+		}
+		// real SOLUSDT perpetual values
+		io.WriteString(w, ok(`{"category":"linear","list":[{"symbol":"SOLUSDT","baseCoin":"SOL","quoteCoin":"USDT",
+			"lotSizeFilter":{"maxOrderQty":"79770.0","minOrderQty":"0.1","qtyStep":"0.1","minNotionalValue":"5"},
+			"priceFilter":{"tickSize":"0.010"}}]}`))
 	})
 
 	inst, err := c.GetInstrument("SOLUSDT")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inst.BaseCoin != "SOL" || inst.QuoteCoin != "USDT" || inst.MinOrderQty != 0.0001 || inst.MinOrderAmt != 5 {
+	if inst.BaseCoin != "SOL" || inst.QuoteCoin != "USDT" || inst.MinOrderQty != 0.1 || inst.MinNotional != 5 {
 		t.Errorf("instrument = %+v", inst)
 	}
 
@@ -222,9 +279,10 @@ func TestGetInstrument(t *testing.T) {
 		{inst.FormatPrice(170.123), "170.12"},
 		{inst.FormatPrice(135.125001), "135.13"},
 		{inst.FormatPrice(170), "170.00"},
-		{inst.FormatBaseQty(0.49995), "0.4999"}, // floor, never more than held
-		{inst.FormatBaseQty(0.4995), "0.4995"},  // 0.4995/0.0001 is 4994.999...
-		{inst.FormatQuoteQty(12.3456789), "12.345678"},
+		{inst.FormatQty(0.49), "0.4"},             // floor to the qty step
+		{inst.FormatQty(0.3), "0.3"},              // 0.3/0.1 is 2.9999...
+		{inst.FormatQty(inst.MinQty(150)), "0.1"}, // minOrderQty: 0.1 SOL is already 15 USDT
+		{inst.FormatQty(inst.MinQty(20)), "0.3"},  // 5 USDT at 20 needs 0.25, up to the step
 	}
 	for _, c := range checks {
 		if c.got != c.want {
@@ -233,31 +291,33 @@ func TestGetInstrument(t *testing.T) {
 	}
 }
 
-func TestGetCoinBalance(t *testing.T) {
+func TestGetFreeBalance(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v5/account/wallet-balance" {
 			t.Errorf("path = %s", r.URL.Path)
 		}
-		if r.URL.RawQuery != "accountType=UNIFIED&coin=SOL" {
+		if r.URL.RawQuery != "accountType=UNIFIED&coin=USDT" {
 			t.Errorf("query = %s", r.URL.RawQuery)
 		}
 		checkSigned(t, r, r.URL.RawQuery)
-		io.WriteString(w, ok(`{"list":[{"accountType":"UNIFIED","coin":[{"coin":"SOL","walletBalance":"0.4995","locked":"0"}]}]}`))
+		io.WriteString(w, ok(`{"list":[{"accountType":"UNIFIED","coin":[{"coin":"USDT",
+			"walletBalance":"1000","totalPositionIM":"400.5","totalOrderIM":"","locked":"0"}]}]}`))
 	})
 
-	got, err := c.GetCoinBalance("SOL")
+	// 400.5 USDT is the margin of an open position; "" is how UTA reports 0.
+	got, err := c.GetFreeBalance("USDT")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != 0.4995 {
-		t.Errorf("balance = %v", got)
+	if got != 599.5 {
+		t.Errorf("free balance = %v, want 599.5", got)
 	}
 }
 
 func TestGetClosedOrder(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		if r.URL.Path != "/v5/order/realtime" || q.Get("orderId") != "1001" || q.Get("openOnly") != "1" || q.Get("category") != "spot" {
+		if r.URL.Path != "/v5/order/realtime" || q.Get("orderId") != "1001" || q.Get("openOnly") != "1" || q.Get("category") != "linear" {
 			t.Errorf("got %s", r.URL)
 		}
 		checkSigned(t, r, r.URL.RawQuery)
@@ -278,7 +338,7 @@ func TestStopOrdersListAndCancel(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v5/order/realtime":
-			if r.URL.Query().Get("orderFilter") != "StopOrder" || r.URL.Query().Get("openOnly") != "" {
+			if q := r.URL.Query(); q.Get("orderFilter") != "StopOrder" || q.Get("category") != "linear" || q.Get("openOnly") != "" {
 				t.Errorf("query = %s", r.URL.RawQuery)
 			}
 			io.WriteString(w, ok(`{"list":[{"orderId":"7","orderLinkId":"tb-SOLUSDT-1-tp","orderStatus":"Untriggered","avgPrice":"","cumExecQty":"0"}]}`))
@@ -303,7 +363,7 @@ func TestStopOrdersListAndCancel(t *testing.T) {
 	if err := c.CancelStopOrder("SOLUSDT", "7"); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]any{"category": "spot", "symbol": "SOLUSDT", "orderId": "7", "orderFilter": "StopOrder"}
+	want := map[string]any{"category": "linear", "symbol": "SOLUSDT", "orderId": "7"}
 	if !reflect.DeepEqual(cancelBody, want) {
 		t.Errorf("cancel body = %v", cancelBody)
 	}

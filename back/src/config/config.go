@@ -52,6 +52,7 @@ type AnalyzerConfig struct {
 	MinRecentSignals int                 `yaml:"minRecentSignals" env:"MIN_RECENT_SIGNALS"` // сигналов за последние RecentMonths месяцев
 	RecentMonths     int                 `yaml:"recentMonths" env:"RECENT_MONTHS"`
 	MinTakeProfits   int                 `yaml:"minTakeProfits" env:"MIN_TAKE_PROFITS"`
+	Martingale       float64             `yaml:"martingale" env:"MARTINGALE"` // только чтобы отказаться: мартингейла здесь нет
 	Takeprofit       RangeConfig         `yaml:"takeprofit" env:"TAKEPROFIT"`
 	Stoploss         RangeConfig         `yaml:"stoploss" env:"STOPLOSS"`
 	Indicators       [][]IndicatorConfig `yaml:"indicators" env-prefix:"INDICATORS_"`

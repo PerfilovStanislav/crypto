@@ -44,6 +44,8 @@ strategies:
 		{"deposit over 100", "deposit_percent: 5", "deposit_percent: 150", "deposit_percent"},
 		{"martingale", "stop_loss: 1500", "stop_loss: 1500\n    martingale: 1.2\n    max_losses: 5", ""},
 		{"negative max_losses", "stop_loss: 1500", "stop_loss: 1500\n    max_losses: -1", "max_losses"},
+		{"short", "stop_loss: 1500", "stop_loss: 1500\n    direction: sell", ""},
+		{"bad direction", "stop_loss: 1500", "stop_loss: 1500\n    direction: short", "direction"},
 		{"telegram is optional", `telegram: {token: "1:abc", chat_id: "42"}`, "", ""},
 		{"telegram token without chat", `chat_id: "42"`, `chat_id: ""`, "telegram"},
 	}
@@ -79,4 +81,33 @@ func writeTemp(t *testing.T, content string) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+func TestOneStrategyPerSymbolAndDirection(t *testing.T) {
+	strategy := func(direction string) string {
+		return `
+  - symbol: SOLUSDT
+    timeframe: 4h
+    direction: ` + direction + `
+    deposit_percent: 5
+    decimals: 2
+    take_profit: 2000
+    stop_loss: 1500
+    indicator1: {type: sma, source: C, coef: 5}
+    indicator2: {type: ema, source: C, coef: 0.5}`
+	}
+
+	cfg, err := Load(writeTemp(t, "strategies:"+strategy("buy")+strategy("sell")))
+	if err != nil {
+		t.Fatalf("long and short on one symbol: %v", err)
+	}
+	if keys := cfg.Strategies[0].Key() + " " + cfg.Strategies[1].Key(); keys != "SOLUSDT-L SOLUSDT-S" {
+		t.Errorf("keys = %s", keys)
+	}
+
+	// No direction is a long, so it clashes with an explicit buy.
+	_, err = Load(writeTemp(t, "strategies:"+strategy("buy")+strings.Replace(strategy("buy"), "direction: buy", "", 1)))
+	if err == nil || !strings.Contains(err.Error(), "one strategy per symbol and direction") {
+		t.Fatalf("err = %v", err)
+	}
 }

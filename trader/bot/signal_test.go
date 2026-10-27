@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"trader/config"
-	"trader/db"
 	"trader/exchange"
 	"trader/indicator"
 	"trader/source"
@@ -15,12 +14,10 @@ import (
 
 var t0 = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-func makeCandles(closes []float64) []db.Candle {
-	candles := make([]db.Candle, len(closes))
+func makeCandles(closes []float64) []exchange.Candle {
+	candles := make([]exchange.Candle, len(closes))
 	for i, c := range closes {
-		candles[i] = db.Candle{
-			Symbol:    "SOLUSDT",
-			Timeframe: "4h",
+		candles[i] = exchange.Candle{
 			Timestamp: t0.Add(time.Duration(i) * 4 * time.Hour),
 			Open:      c, High: c + 1, Low: c - 1, Close: c, Volume: 100,
 		}
@@ -172,14 +169,16 @@ func TestTpSlPrices(t *testing.T) {
 		name           string
 		entry, tp, sl  float64
 		decimals       int
+		short          bool
 		wantTp, wantSl float64
 	}{
-		{"SOLUSDT decimals 2", 150, 2000, 1500, 2, 170, 135},
-		{"decimals 0", 150, 20, 15, 0, 170, 135},
-		{"decimals 4", 0.5, 200, 100, 4, 0.52, 0.49},
+		{"SOLUSDT decimals 2", 150, 2000, 1500, 2, false, 170, 135},
+		{"decimals 0", 150, 20, 15, 0, false, 170, 135},
+		{"decimals 4", 0.5, 200, 100, 4, false, 0.52, 0.49},
+		{"short: TP below, SL above", 150, 2000, 1500, 2, true, 130, 165},
 	}
 	for _, c := range cases {
-		tp, sl := TpSlPrices(c.entry, c.tp, c.sl, c.decimals)
+		tp, sl := TpSlPrices(c.entry, c.tp, c.sl, c.decimals, c.short)
 		if math.Abs(tp-c.wantTp) > 1e-9 || math.Abs(sl-c.wantSl) > 1e-9 {
 			t.Errorf("%s: got tp %v sl %v, want %v %v", c.name, tp, sl, c.wantTp, c.wantSl)
 		}
@@ -187,11 +186,11 @@ func TestTpSlPrices(t *testing.T) {
 }
 
 func TestTpSlFormattedWithTick(t *testing.T) {
-	inst, err := exchange.NewInstrument("SOL", "USDT", "0.01", "0.0001", "0.000001", "0.0001", "5")
+	inst, err := exchange.NewInstrument("SOL", "USDT", "0.01", "0.0001", "0.0001", "5")
 	if err != nil {
 		t.Fatal(err)
 	}
-	tp, sl := TpSlPrices(150.123, 2000, 1500, 2)
+	tp, sl := TpSlPrices(150.123, 2000, 1500, 2, false)
 	if got := inst.FormatPrice(tp); got != "170.12" {
 		t.Errorf("tp = %s", got)
 	}

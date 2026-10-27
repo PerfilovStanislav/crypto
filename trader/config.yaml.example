@@ -1,15 +1,17 @@
 # Copy to config.yaml and fill in. config.yaml is git-ignored.
 bybit:
-  # API key of a unified trading account (UTA) with spot trading permission.
-  # Use a dedicated sub-account: the bot treats the whole base coin balance
-  # (e.g. all SOL) as its open position.
+  # API key of a unified trading account (UTA) with derivatives (contract)
+  # trading permission. The bot trades USDT perpetuals: at start it switches
+  # every configured symbol to hedge mode (long and short at once) and sets
+  # leverage 1x. Use a dedicated sub-account: the bot treats a symbol's long or
+  # short position as the position of its strategy.
   api_key: "YOUR_API_KEY"
   api_secret: "YOUR_API_SECRET"
   # Optional, default https://api.bybit.com. Testnet: https://api-testnet.bybit.com
   # base_url: "https://api-testnet.bybit.com"
 
 # Optional: a message to this chat on every entry and when an entry fails after
-# the buy. Token from @BotFather; chat_id: write to the bot, then open
+# the position is opened. Token from @BotFather; chat_id: write to the bot, then open
 # https://api.telegram.org/bot<token>/getUpdates and take message.chat.id.
 # telegram:
 #   token: "123456:ABC..."
@@ -19,22 +21,19 @@ bybit:
 # restarts. Optional, default state.json in the working directory.
 # state_file: "state.json"
 
-# Optional: every closed candle is also saved here. The bot never reads it back,
-# so on a small server without ClickHouse just remove this section.
-db:
-  host: "127.0.0.1"
-  port: 8123 # 8123 = HTTP, anything else = native protocol
-  user: "default"
-  password: ""
-  database: "default"
-
-# One strategy per symbol. Values come from the analyzer output.
+# One strategy per symbol and direction (a long and a short can run on one
+# symbol). Values come from the analyzer output.
 strategies:
   - symbol: "SOLUSDT"
+    direction: "buy" # buy (long) or sell (short), as analyzer.direction; default buy
     timeframe: "4h" # 1m 3m 5m 15m 30m 1h 2h 4h 6h 12h 1d
-    deposit_percent: 5.0 # % of the USDT balance per trade, at least Bybit's minimum order (5 USDT)
+    # % of the free USDT balance per trade. A smaller order than Bybit's minimum
+    # (5 USDT, or e.g. 0.001 BTC) is raised to it, unless the minimum is more
+    # than twice this stake: then the entry is skipped and logged.
+    deposit_percent: 5.0
     # Same units as the analyzer: offsets from the entry price in 10^-decimals.
     # decimals 2: take_profit 2000 = entry + 20.00 USDT, stop_loss 1500 = entry - 15.00 USDT
+    # (for a short: TP 20.00 below the entry, SL 15.00 above).
     decimals: 2
     take_profit: 2000
     stop_loss: 1500
@@ -55,6 +54,7 @@ strategies:
     # base + martingale * series loss / TP return, after a take profit it is the
     # base again. After max_losses stop losses in a row (0 = no limit), or when
     # the balance can not cover the stake, the strategy stops and a Telegram
-    # message is sent; remove the symbol from state_file to resume.
+    # message is sent; remove the strategy's key ("SOLUSDT-L" for the long,
+    # "SOLUSDT-S" for the short) from state_file to resume.
     # martingale: 1.2
     # max_losses: 5
