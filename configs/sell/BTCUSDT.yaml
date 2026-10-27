@@ -1,0 +1,239 @@
+# + 160.82% ( 50)   1.93% ( 90)  [pr/dd:83.43  pr/cnd:0.0214]  ind1:[     ema  CH  1.16]  ind2:[     ema   L  1.38]  tp:47650  sl:11550  http://localhost/?tf=1h&tp=47650&sl=11550&i1=ema,1.16,CH&i2=ema,1.38,L
+analyzer:
+  timeframe: "1h"
+
+  martingale: 0.0           # 0 или нет ключа — выключен, каждая сделка на весь капитал
+  depositPercent: 30        # первая сделка серии, % капитала
+  maxLosses: 3              # столько SL подряд — стратегия отбрасывается (0 — без ограничения)
+
+  minCloses: 100            # минимальное кол-во takeprofits за весь период
+  minSignals: 70            # минимальное кол-во пересечений индикаторов
+
+  minRecentSignals: 4       # минимальное кол-во сигналов за последние recentMonths месяцев
+  recentMonths: 2           # «свежий» период для minRecentSignals, месяцев
+
+  periodMonths: 24          # период истории для перебора, месяцев (по умолчанию 24)
+  minTakeProfits: 50        # минимальное кол-во положительных сделок (takeprofits)
+  decimals: 1
+  takeprofit:
+    start: 30000
+    end: 50000
+    step: 500
+  stoploss:
+    start: 5000
+    end: 20000
+    step: 500
+
+  indicators:
+    # 1-ая группа индикаторов
+    -
+      - type: sma
+        coefs:
+          start: 3.0
+          end: 15.0
+          step: 1.0
+        sources:
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
+
+      - type: ema
+        coefs:
+          start: 0.2
+          end: 1.5
+          step: 0.1
+        sources:
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
+      - type: dema
+        coefs:
+          start: 0.2
+          end: 1.5
+          step: 0.1
+        sources:
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
+
+      - type: tema
+        coefs:
+          start: 0.2
+          end: 1.5
+          step: 0.1
+        sources:
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
+
+      - type: temaZero
+        coefs:
+          start: 0.2
+          end: 1.6
+          step: 0.1
+        sources:
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
+
+    # 2-ая группа индикаторов
+    -
+      - type: sma
+        coefs:
+          start: 3.0
+          end: 15.0
+          step: 1.0
+        sources:
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
+
+      - type: ema
+        coefs:
+          start: 0.2
+          end: 1.5
+          step: 0.1
+        sources:
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
+
+      - type: dema
+        coefs:
+          start: 0.2
+          end: 1.5
+          step: 0.1
+        sources:
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
+
+      - type: tema
+        coefs:
+          start: 0.2
+          end: 1.5
+          step: 0.1
+        sources:
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
+
+      - type: temaZero
+        coefs:
+          start: 0.2
+          end: 1.6
+          step: 0.1
+        sources:
+          - L
+          - O
+          - C
+          - H
+          - LO
+          - LC
+          - LH
+          - OC
+          - OH
+          - CH
+          - LOC
+          - LOH
+          - LCH
+          - OCH
