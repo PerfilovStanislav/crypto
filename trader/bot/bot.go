@@ -353,6 +353,8 @@ func (b *Bot) enter(s config.StrategyConfig, inst exchange.Instrument, lastClose
 		if minValue := minQty * lastClose; minValue > 2*stake {
 			b.logf(s, "Skipping entry: Bybit minimum order %s %s (%.2f %s) is more than twice the stake %.2f %s",
 				inst.FormatQty(minQty), inst.BaseCoin, minValue, inst.QuoteCoin, stake, inst.QuoteCoin)
+			b.notifyf(s, "⏭ %s: вход пропущен — минимальный ордер Bybit %s %s (%.2f %s) больше чем вдвое превышает ставку %.2f %s",
+				title(s), inst.FormatQty(minQty), inst.BaseCoin, minValue, inst.QuoteCoin, stake, inst.QuoteCoin)
 			return nil
 		}
 		b.logf(s, "Order of %s %s is below the minimum, opening %s", inst.FormatQty(qty), inst.BaseCoin, inst.FormatQty(minQty))

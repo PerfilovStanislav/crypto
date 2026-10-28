@@ -279,6 +279,9 @@ func TestEnterSkipsMinimumFarAboveStake(t *testing.T) {
 	if !strings.Contains(logs.String(), "Skipping entry: Bybit minimum order 0.0334 SOL (5.01 USDT) is more than twice the stake 2.00 USDT") {
 		t.Errorf("log %q", logs.String())
 	}
+	if sent := b.notify.(*fakeNotifier).sent; len(sent) != 1 || !strings.Contains(sent[0], "SOLUSDT 4h long: вход пропущен") || !strings.Contains(sent[0], "5.01 USDT") {
+		t.Errorf("notifications %q", sent)
+	}
 }
 
 func TestEnterRefusesBalanceBelowMinimum(t *testing.T) {
