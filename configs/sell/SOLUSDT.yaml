@@ -14,15 +14,15 @@ analyzer:
 
   periodMonths: 24          # период истории для перебора, месяцев (по умолчанию 24)
   minTakeProfits: 40        # минимальное кол-во положительных сделок (takeprofits)
-  decimals: 3
+  decimals: 2
   takeprofit:
-    start: 9000
-    end: 13000
-    step: 75
+    start: 900
+    end: 1300
+    step: 7
   stoploss:
-    start: 5000
-    end: 8000
-    step: 75
+    start: 500
+    end: 800
+    step: 7
 
   indicators:
     # 1-ая группа индикаторов
