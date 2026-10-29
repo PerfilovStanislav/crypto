@@ -306,16 +306,23 @@ func (c *Client) SetupHedge(symbol string) error {
 	return nil
 }
 
-// GetPositionSize returns the size (in the base coin) of one side of a
-// hedge-mode position: positionIdx 1 is the long, 2 the short. 0 means flat.
-func (c *Client) GetPositionSize(symbol string, positionIdx int) (float64, error) {
+// Position is one side of a hedge-mode position. Size is in the base coin, 0
+// means flat; StopLoss is 0 when the position has none.
+type Position struct {
+	Size     float64
+	StopLoss float64
+}
+
+// GetPosition returns one side of a hedge-mode position: positionIdx 1 is the
+// long, 2 the short.
+func (c *Client) GetPosition(symbol string, positionIdx int) (Position, error) {
 	query := url.Values{}
 	query.Set("category", "linear")
 	query.Set("symbol", symbol)
 
 	result, err := c.get("/v5/position/list", query, true)
 	if err != nil {
-		return 0, err
+		return Position{}, err
 	}
 
 	var pr struct {
@@ -323,17 +330,44 @@ func (c *Client) GetPositionSize(symbol string, positionIdx int) (float64, error
 			Symbol      string `json:"symbol"`
 			PositionIdx int    `json:"positionIdx"`
 			Size        string `json:"size"`
+			StopLoss    string `json:"stopLoss"`
 		} `json:"list"`
 	}
 	if err := json.Unmarshal(result, &pr); err != nil {
-		return 0, err
+		return Position{}, err
 	}
 	for _, p := range pr.List {
 		if p.Symbol == symbol && p.PositionIdx == positionIdx {
-			return parseOptionalFloat(p.Size)
+			size, err := parseOptionalFloat(p.Size)
+			if err != nil {
+				return Position{}, fmt.Errorf("size: %w", err)
+			}
+			sl, err := parseOptionalFloat(p.StopLoss)
+			if err != nil {
+				return Position{}, fmt.Errorf("stopLoss: %w", err)
+			}
+			return Position{Size: size, StopLoss: sl}, nil
 		}
 	}
-	return 0, nil
+	return Position{}, nil
+}
+
+// SetTradingStop puts TP and SL on one side of a hedge-mode position (Full
+// mode: each closes the whole position at market, triggered by the last
+// price). They belong to the position, so when one fires Bybit cancels the
+// other.
+func (c *Client) SetTradingStop(symbol string, positionIdx int, takeProfit, stopLoss string) error {
+	_, err := c.post("/v5/position/trading-stop", map[string]any{
+		"category":    "linear",
+		"symbol":      symbol,
+		"tpslMode":    "Full",
+		"positionIdx": positionIdx,
+		"takeProfit":  takeProfit,
+		"stopLoss":    stopLoss,
+		"tpTriggerBy": "LastPrice",
+		"slTriggerBy": "LastPrice",
+	})
+	return err
 }
 
 // GetFreeBalance returns how much of a coin the unified account can still put
@@ -382,23 +416,15 @@ func (c *Client) GetFreeBalance(coin string) (float64, error) {
 }
 
 type OrderRequest struct {
-	Category         string `json:"category"`
-	Symbol           string `json:"symbol"`
-	Side             string `json:"side"`
-	OrderType        string `json:"orderType"`
-	Qty              string `json:"qty"`
-	PositionIdx      int    `json:"positionIdx"`
-	TriggerPrice     string `json:"triggerPrice,omitempty"`
-	TriggerDirection int    `json:"triggerDirection,omitempty"`
-	ReduceOnly       bool   `json:"reduceOnly,omitempty"`
-	OrderLinkID      string `json:"orderLinkId,omitempty"`
+	Category    string `json:"category"`
+	Symbol      string `json:"symbol"`
+	Side        string `json:"side"`
+	OrderType   string `json:"orderType"`
+	Qty         string `json:"qty"`
+	PositionIdx int    `json:"positionIdx"`
+	ReduceOnly  bool   `json:"reduceOnly,omitempty"`
+	OrderLinkID string `json:"orderLinkId,omitempty"`
 }
-
-// Trigger directions of a conditional order.
-const (
-	TriggerRise = 1 // fires when the last price rises to triggerPrice
-	TriggerFall = 2 // fires when the last price falls to triggerPrice
-)
 
 // MarketOrder is a USDT perpetual market order for qty of the base coin on the
 // hedge-mode side positionIdx: it opens (or, with reduceOnly, closes) that side.
@@ -412,25 +438,6 @@ func MarketOrder(symbol, side, qty string, positionIdx int, reduceOnly bool, ord
 		PositionIdx: positionIdx,
 		ReduceOnly:  reduceOnly,
 		OrderLinkID: orderLinkID,
-	}
-}
-
-// StopMarket is a conditional reduce-only market order: once the last price
-// crosses triggerPrice in triggerDirection it closes qty of the side
-// positionIdx. TP and SL are two such orders with the strategy's own
-// orderLinkId, so the bot can tell its exits from any other order.
-func StopMarket(symbol, side, qty, triggerPrice string, triggerDirection, positionIdx int, orderLinkID string) OrderRequest {
-	return OrderRequest{
-		Category:         "linear",
-		Symbol:           symbol,
-		Side:             side,
-		OrderType:        "Market",
-		Qty:              qty,
-		PositionIdx:      positionIdx,
-		TriggerPrice:     triggerPrice,
-		TriggerDirection: triggerDirection,
-		ReduceOnly:       true,
-		OrderLinkID:      orderLinkID,
 	}
 }
 
@@ -460,6 +467,11 @@ type Order struct {
 	Status      string
 	AvgPrice    float64
 	CumExecQty  float64
+	PositionIdx int
+	// StopOrderType is "StopLoss" or "TakeProfit" for the position's TP/SL,
+	// "Stop" for a plain conditional order, "" for an ordinary one.
+	StopOrderType string
+	UpdatedTime   time.Time
 }
 
 // Closed reports whether the order reached a final status.
@@ -472,15 +484,18 @@ func (o Order) Closed() bool {
 }
 
 type orderJSON struct {
-	OrderID     string `json:"orderId"`
-	OrderLinkID string `json:"orderLinkId"`
-	OrderStatus string `json:"orderStatus"`
-	AvgPrice    string `json:"avgPrice"`
-	CumExecQty  string `json:"cumExecQty"`
+	OrderID       string `json:"orderId"`
+	OrderLinkID   string `json:"orderLinkId"`
+	OrderStatus   string `json:"orderStatus"`
+	AvgPrice      string `json:"avgPrice"`
+	CumExecQty    string `json:"cumExecQty"`
+	PositionIdx   int    `json:"positionIdx"`
+	StopOrderType string `json:"stopOrderType"`
+	UpdatedTime   string `json:"updatedTime"`
 }
 
-func (c *Client) listOrders(query url.Values) ([]Order, error) {
-	result, err := c.get("/v5/order/realtime", query, true)
+func (c *Client) listOrders(endpoint string, query url.Values) ([]Order, error) {
+	result, err := c.get(endpoint, query, true)
 	if err != nil {
 		return nil, err
 	}
@@ -502,12 +517,19 @@ func (c *Client) listOrders(query url.Values) ([]Order, error) {
 		if err != nil {
 			return nil, fmt.Errorf("order %s: cumExecQty: %w", o.OrderID, err)
 		}
+		updated, err := parseOptionalFloat(o.UpdatedTime)
+		if err != nil {
+			return nil, fmt.Errorf("order %s: updatedTime: %w", o.OrderID, err)
+		}
 		orders = append(orders, Order{
-			OrderID:     o.OrderID,
-			OrderLinkID: o.OrderLinkID,
-			Status:      o.OrderStatus,
-			AvgPrice:    avg,
-			CumExecQty:  qty,
+			OrderID:       o.OrderID,
+			OrderLinkID:   o.OrderLinkID,
+			Status:        o.OrderStatus,
+			AvgPrice:      avg,
+			CumExecQty:    qty,
+			PositionIdx:   o.PositionIdx,
+			StopOrderType: o.StopOrderType,
+			UpdatedTime:   time.UnixMilli(int64(updated)).UTC(),
 		})
 	}
 	return orders, nil
@@ -523,7 +545,7 @@ func (c *Client) GetClosedOrder(symbol, orderID string) (order Order, found bool
 	query.Set("orderId", orderID)
 	query.Set("openOnly", "1")
 
-	orders, err := c.listOrders(query)
+	orders, err := c.listOrders("/v5/order/realtime", query)
 	if err != nil {
 		return Order{}, false, err
 	}
@@ -541,9 +563,21 @@ func (c *Client) GetOpenStopOrders(symbol string) ([]Order, error) {
 	query.Set("category", "linear")
 	query.Set("symbol", symbol)
 	query.Set("orderFilter", "StopOrder")
-	query.Set("limit", "50") // the maximum page; the bot keeps 2 per strategy
+	query.Set("limit", "50") // the maximum page
 
-	return c.listOrders(query)
+	return c.listOrders("/v5/order/realtime", query)
+}
+
+// GetFilledOrders lists the latest filled orders of a USDT perpetual, newest
+// first; Bybit keeps them in the history for 7 days.
+func (c *Client) GetFilledOrders(symbol string) ([]Order, error) {
+	query := url.Values{}
+	query.Set("category", "linear")
+	query.Set("symbol", symbol)
+	query.Set("orderStatus", "Filled")
+	query.Set("limit", "50") // the maximum page
+
+	return c.listOrders("/v5/order/history", query)
 }
 
 func (c *Client) CancelStopOrder(symbol, orderID string) error {

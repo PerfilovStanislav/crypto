@@ -101,30 +101,31 @@ func TestMarketOrderRequest(t *testing.T) {
 	}
 }
 
-func TestStopMarketRequest(t *testing.T) {
+func TestSetTradingStop(t *testing.T) {
 	var body map[string]any
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v5/position/trading-stop" {
+			t.Errorf("got %s", r.URL)
+		}
 		var raw string
 		raw, body = decodeBody(t, r)
 		checkSigned(t, r, raw)
-		io.WriteString(w, ok(`{"orderId":"1002"}`))
+		io.WriteString(w, ok(`{}`))
 	})
 
-	if _, err := c.PlaceOrder(StopMarket("SOLUSDT", "Sell", "0.3", "135.12", TriggerFall, 1, "tb-SOLUSDT-L-1-sl")); err != nil {
+	if err := c.SetTradingStop("SOLUSDT", 1, "170.12", "135.12"); err != nil {
 		t.Fatal(err)
 	}
 
 	want := map[string]any{
-		"category":         "linear",
-		"symbol":           "SOLUSDT",
-		"side":             "Sell",
-		"orderType":        "Market",
-		"qty":              "0.3",
-		"positionIdx":      1.0,
-		"triggerPrice":     "135.12",
-		"triggerDirection": 2.0, // a long's stop loss fires on a fall
-		"reduceOnly":       true,
-		"orderLinkId":      "tb-SOLUSDT-L-1-sl",
+		"category":    "linear",
+		"symbol":      "SOLUSDT",
+		"tpslMode":    "Full",
+		"positionIdx": 1.0,
+		"takeProfit":  "170.12",
+		"stopLoss":    "135.12",
+		"tpTriggerBy": "LastPrice",
+		"slTriggerBy": "LastPrice",
 	}
 	if !reflect.DeepEqual(body, want) {
 		t.Errorf("body = %v\nwant  %v", body, want)
@@ -177,24 +178,24 @@ func TestSetupHedge(t *testing.T) {
 	}
 }
 
-func TestGetPositionSize(t *testing.T) {
+func TestGetPosition(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v5/position/list" || r.URL.RawQuery != "category=linear&symbol=SOLUSDT" {
 			t.Errorf("got %s", r.URL)
 		}
 		checkSigned(t, r, r.URL.RawQuery)
 		io.WriteString(w, ok(`{"category":"linear","list":[
-			{"symbol":"SOLUSDT","positionIdx":1,"side":"Buy","size":"0.5"},
-			{"symbol":"SOLUSDT","positionIdx":2,"side":"","size":"0"}]}`))
+			{"symbol":"SOLUSDT","positionIdx":1,"side":"Buy","size":"0.5","stopLoss":"135.12"},
+			{"symbol":"SOLUSDT","positionIdx":2,"side":"","size":"0","stopLoss":"0.00"}]}`))
 	})
 
-	for idx, want := range map[int]float64{1: 0.5, 2: 0} {
-		got, err := c.GetPositionSize("SOLUSDT", idx)
+	for idx, want := range map[int]Position{1: {Size: 0.5, StopLoss: 135.12}, 2: {}} {
+		got, err := c.GetPosition("SOLUSDT", idx)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if got != want {
-			t.Errorf("positionIdx %d: size %v, want %v", idx, got, want)
+			t.Errorf("positionIdx %d: %+v, want %+v", idx, got, want)
 		}
 	}
 }
@@ -366,5 +367,27 @@ func TestStopOrdersListAndCancel(t *testing.T) {
 	want := map[string]any{"category": "linear", "symbol": "SOLUSDT", "orderId": "7"}
 	if !reflect.DeepEqual(cancelBody, want) {
 		t.Errorf("cancel body = %v", cancelBody)
+	}
+}
+
+func TestGetFilledOrders(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if r.URL.Path != "/v5/order/history" || q.Get("orderStatus") != "Filled" || q.Get("category") != "linear" || q.Get("symbol") != "SOLUSDT" {
+			t.Errorf("got %s", r.URL)
+		}
+		checkSigned(t, r, r.URL.RawQuery)
+		io.WriteString(w, ok(`{"list":[{"orderId":"9","orderLinkId":"","orderStatus":"Filled","avgPrice":"135.1","cumExecQty":"0.3333",
+			"positionIdx":1,"stopOrderType":"StopLoss","updatedTime":"1760529600000"}]}`))
+	})
+
+	orders, err := c.GetFilledOrders("SOLUSDT")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Order{OrderID: "9", Status: "Filled", AvgPrice: 135.1, CumExecQty: 0.3333,
+		PositionIdx: 1, StopOrderType: "StopLoss", UpdatedTime: time.UnixMilli(1760529600000).UTC()}
+	if len(orders) != 1 || orders[0] != want {
+		t.Errorf("orders = %+v", orders)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"trader/config"
 )
@@ -26,10 +27,10 @@ type seriesState struct {
 
 // openDeal is what settle needs once the position is gone.
 type openDeal struct {
-	LinkID  string  `json:"link_id"`
-	Entry   float64 `json:"entry"`
-	Qty     float64 `json:"qty"` // base coin protected by the exits
-	SLPrice float64 `json:"sl_price"`
+	Opened  time.Time `json:"opened"` // the exit that closed the deal is later
+	Entry   float64   `json:"entry"`
+	Qty     float64   `json:"qty"` // base coin protected by TP/SL
+	SLPrice float64   `json:"sl_price"`
 }
 
 type stateStore struct {
@@ -99,27 +100,31 @@ func (st *stateStore) update(key string, change func(*seriesState)) error {
 }
 
 // settle books the deal that has just closed. Which exit fired shows in the
-// bot's exit order that is still waiting: a TP left means the SL fired.
+// order history: the position's TP or SL is the newest filled order of the
+// strategy's side since the entry.
 func (b *Bot) settle(s config.StrategyConfig) error {
 	open := b.state.get(s.Key()).Open
 	if open == nil {
 		return nil
 	}
-	orders, err := b.botStopOrders(s)
+	orders, err := b.ex.GetFilledOrders(s.Symbol)
 	if err != nil {
 		return err
 	}
-	var tpLeft, slLeft bool
-	for _, o := range orders {
-		tpLeft = tpLeft || o.OrderLinkID == open.LinkID+"-tp"
-		slLeft = slLeft || o.OrderLinkID == open.LinkID+"-sl"
+	var exit string
+	for _, o := range orders { // newest first
+		if o.PositionIdx == positionIdx(s) && !o.UpdatedTime.Before(open.Opened) &&
+			(o.StopOrderType == "StopLoss" || o.StopOrderType == "TakeProfit") {
+			exit = o.StopOrderType
+			break
+		}
 	}
 
 	var msg string
 	err = b.state.update(s.Key(), func(st *seriesState) {
 		st.Open = nil
-		switch {
-		case tpLeft && !slLeft:
+		switch exit {
+		case "StopLoss":
 			// shortcut: комиссии и проскальзывание не учтены; точнее — по факту исполнения стоп-ордера.
 			st.Loss += open.Qty * math.Abs(open.SLPrice-open.Entry)
 			st.Losses++
@@ -128,12 +133,12 @@ func (b *Bot) settle(s config.StrategyConfig) error {
 				st.Stopped = fmt.Sprintf("%d stop losses in a row", st.Losses)
 				msg += fmt.Sprintf("\n⛔ стратегия остановлена. Чтобы продолжить, удалите %s из %s", s.Key(), b.state.path)
 			}
-		case slLeft && !tpLeft:
+		case "TakeProfit":
 			b.logf(s, "Take profit, martingale series closed")
 			st.Loss, st.Losses = 0, 0
 		default:
 			st.Loss, st.Losses = 0, 0
-			msg = fmt.Sprintf("⚠️ %s: не понять, чем закрылась сделка (у бота нет её стоп-ордеров), серия мартингейла сброшена", title(s))
+			msg = fmt.Sprintf("⚠️ %s: не понять, чем закрылась сделка (в истории ордеров нет её TP/SL), серия мартингейла сброшена", title(s))
 		}
 	})
 	if msg != "" {

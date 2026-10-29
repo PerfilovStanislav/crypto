@@ -17,13 +17,15 @@ import (
 
 // fakeExchange simulates a Bybit unified account trading USDT perpetuals in
 // hedge mode: a market order fills at fillPrice and changes the size of its
-// side; conditional orders wait in stopOrders until a test fires them.
+// side; TP/SL of a side wait in tpsl until a test fires them.
 type fakeExchange struct {
 	klines     []exchange.Candle
 	inst       exchange.Instrument
 	usdt       float64
-	positions  map[int]float64 // positionIdx -> size
-	stopOrders []exchange.Order
+	positions  map[int]float64   // positionIdx -> size
+	tpsl       map[int][2]string // positionIdx -> TP, SL price
+	history    []exchange.Order  // filled orders, newest first
+	stopOrders []exchange.Order  // conditional orders of the old version
 	fillPrice  float64
 
 	placed    []exchange.OrderRequest
@@ -42,6 +44,7 @@ func newFakeExchange(t *testing.T) *fakeExchange {
 		inst:      inst,
 		usdt:      1000,
 		positions: map[int]float64{},
+		tpsl:      map[int][2]string{},
 		fillPrice: 150.123,
 		filled:    map[string]exchange.Order{},
 	}
@@ -64,17 +67,26 @@ func (f *fakeExchange) SetupHedge(symbol string) error {
 	return nil
 }
 
-func (f *fakeExchange) GetPositionSize(symbol string, positionIdx int) (float64, error) {
-	return f.positions[positionIdx], nil
+func (f *fakeExchange) GetPosition(symbol string, positionIdx int) (exchange.Position, error) {
+	pos := exchange.Position{Size: f.positions[positionIdx]}
+	if sl := f.tpsl[positionIdx][1]; sl != "" {
+		pos.StopLoss, _ = strconv.ParseFloat(sl, 64)
+	}
+	return pos, nil
+}
+
+func (f *fakeExchange) SetTradingStop(symbol string, positionIdx int, takeProfit, stopLoss string) error {
+	f.tpsl[positionIdx] = [2]string{takeProfit, stopLoss}
+	return nil
+}
+
+func (f *fakeExchange) GetFilledOrders(symbol string) ([]exchange.Order, error) {
+	return f.history, nil
 }
 
 func (f *fakeExchange) PlaceOrder(req exchange.OrderRequest) (string, error) {
 	f.placed = append(f.placed, req)
 	id := req.OrderLinkID
-	if req.TriggerPrice != "" {
-		f.stopOrders = append(f.stopOrders, exchange.Order{OrderID: id, OrderLinkID: id, Status: "Untriggered"})
-		return id, nil
-	}
 	qty, err := strconv.ParseFloat(req.Qty, 64)
 	if err != nil {
 		return "", err
@@ -145,7 +157,7 @@ func TestTradeSkipsWhileHoldingPosition(t *testing.T) {
 	}
 }
 
-func TestTradeEntersLongWithSeparateStopOrders(t *testing.T) {
+func TestTradeEntersLongWithPositionTpSl(t *testing.T) {
 	ex := newFakeExchange(t)
 	ex.stopOrders = []exchange.Order{
 		{OrderID: "old-tp", OrderLinkID: "tb-SOLUSDT-L-1-tp", Status: "Untriggered"},
@@ -163,13 +175,12 @@ func TestTradeEntersLongWithSeparateStopOrders(t *testing.T) {
 	}
 
 	// 5% of 1000 USDT at 150 = 0.3333 SOL; TP = 150.123 + 2000/10^2, SL = 150.123 - 1500/10^2.
-	want := []exchange.OrderRequest{
-		exchange.MarketOrder("SOLUSDT", "Buy", "0.3333", 1, false, "tb-SOLUSDT-L-"+link+"-o"),
-		exchange.StopMarket("SOLUSDT", "Sell", "0.3333", "135.12", exchange.TriggerFall, 1, "tb-SOLUSDT-L-"+link+"-sl"),
-		exchange.StopMarket("SOLUSDT", "Sell", "0.3333", "170.12", exchange.TriggerRise, 1, "tb-SOLUSDT-L-"+link+"-tp"),
-	}
+	want := []exchange.OrderRequest{exchange.MarketOrder("SOLUSDT", "Buy", "0.3333", 1, false, "tb-SOLUSDT-L-"+link+"-o")}
 	if !reflect.DeepEqual(ex.placed, want) {
 		t.Errorf("placed:\n%+v\nwant:\n%+v", ex.placed, want)
+	}
+	if got := ex.tpsl[1]; got != [2]string{"170.12", "135.12"} {
+		t.Errorf("TP/SL of the long %v", got)
 	}
 
 	sent := b.notify.(*fakeNotifier).sent
@@ -186,14 +197,13 @@ func TestTradeEntersShort(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A short: sell to open, TP below the entry, SL above, both close with a buy.
-	want := []exchange.OrderRequest{
-		exchange.MarketOrder("SOLUSDT", "Sell", "0.3333", 2, false, "tb-SOLUSDT-S-"+link+"-o"),
-		exchange.StopMarket("SOLUSDT", "Buy", "0.3333", "165.12", exchange.TriggerRise, 2, "tb-SOLUSDT-S-"+link+"-sl"),
-		exchange.StopMarket("SOLUSDT", "Buy", "0.3333", "130.12", exchange.TriggerFall, 2, "tb-SOLUSDT-S-"+link+"-tp"),
-	}
+	// A short: sell to open, TP below the entry, SL above.
+	want := []exchange.OrderRequest{exchange.MarketOrder("SOLUSDT", "Sell", "0.3333", 2, false, "tb-SOLUSDT-S-"+link+"-o")}
 	if !reflect.DeepEqual(ex.placed, want) {
 		t.Errorf("placed:\n%+v\nwant:\n%+v", ex.placed, want)
+	}
+	if got := ex.tpsl[2]; got != [2]string{"130.12", "165.12"} {
+		t.Errorf("TP/SL of the short %v", got)
 	}
 	if sent := b.notify.(*fakeNotifier).sent; len(sent) != 1 || !strings.Contains(sent[0], "SOLUSDT 4h short") || !strings.Contains(sent[0], "продано") {
 		t.Errorf("notifications %q", sent)
@@ -213,7 +223,7 @@ func TestLongAndShortTradeIndependently(t *testing.T) {
 	if err := b.trade(sell, true, 150); err != nil {
 		t.Fatal(err)
 	}
-	if len(ex.placed) != 6 || len(ex.cancelled) != 0 {
+	if len(ex.placed) != 2 || len(ex.tpsl) != 2 || len(ex.cancelled) != 0 {
 		t.Fatalf("placed %d orders, cancelled %v: want both entries, nothing cancelled", len(ex.placed), ex.cancelled)
 	}
 	if ex.positions[1] != 0.3333 || ex.positions[2] != 0.3333 {
@@ -346,16 +356,20 @@ func TestEnterClosesPositionWithoutStopLoss(t *testing.T) {
 	}
 }
 
-// rejectStops lets the market entry through and rejects conditional orders
-// (and, with rejectClose, reduce-only closes).
+// rejectStops lets the market entry through and rejects TP/SL (and, with
+// rejectClose, reduce-only closes).
 type rejectStops struct {
 	*fakeExchange
 	rejectClose bool
 }
 
+func (r *rejectStops) SetTradingStop(string, int, string, string) error {
+	return errors.New("retCode 10001")
+}
+
 func (r *rejectStops) PlaceOrder(req exchange.OrderRequest) (string, error) {
-	if req.TriggerPrice != "" || (r.rejectClose && req.ReduceOnly) {
-		return "", errors.New("retCode 170131")
+	if r.rejectClose && req.ReduceOnly {
+		return "", errors.New("retCode 110017")
 	}
 	return r.fakeExchange.PlaceOrder(req)
 }
@@ -416,8 +430,8 @@ func TestProcessCandleWaitsForRolloverThenTrades(t *testing.T) {
 	if err != nil || !done {
 		t.Fatalf("after rollover: done=%v err=%v", done, err)
 	}
-	if len(ex.placed) != 3 || ex.placed[0].Side != "Buy" {
-		t.Fatalf("placed %+v, want entry + sl + tp", ex.placed)
+	if len(ex.placed) != 1 || ex.placed[0].Side != "Buy" || ex.tpsl[1] == [2]string{} {
+		t.Fatalf("placed %+v, TP/SL %v: want the entry with TP/SL", ex.placed, ex.tpsl)
 	}
 
 	// Next candle: the signal still holds, but the position is open
@@ -435,14 +449,14 @@ func TestOrderLinkIDsFitBybitLimit(t *testing.T) {
 	s.Symbol = "1000000BABYDOGEUSDT"
 
 	normal, failing := newFakeExchange(t), newFakeExchange(t)
-	if err := newTestBot(normal).trade(s, true, 150); err != nil { // entry, SL, TP
+	if err := newTestBot(normal).trade(s, true, 150); err != nil { // entry
 		t.Fatal(err)
 	}
 	newTestBot(&rejectStops{fakeExchange: failing}).trade(s, true, 150) // entry, emergency close
 
 	placed := append(normal.placed, failing.placed...)
-	if len(placed) != 5 {
-		t.Fatalf("placed %d orders, want 5", len(placed))
+	if len(placed) != 3 {
+		t.Fatalf("placed %d orders, want 3", len(placed))
 	}
 	for _, o := range placed {
 		if len(o.OrderLinkID) > 36 {

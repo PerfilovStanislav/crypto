@@ -48,23 +48,25 @@ func parse(t *testing.T, v string) float64 {
 	return f
 }
 
-// closeDeal fires one exit ("sl" or "tp") of the last entry, as Bybit would:
-// the side is closed at the trigger price and the other exit keeps waiting.
-func closeDeal(t *testing.T, ex *fakeExchange, exit string) {
+// closeDeal fires the TP or SL ("tp"/"sl") of the entry made on candle, as
+// Bybit would: the side is closed at that price, the other exit goes with the
+// position, and the fired one shows in the order history an hour later.
+func closeDeal(t *testing.T, ex *fakeExchange, exit string, candle int) {
 	t.Helper()
-	n := len(ex.placed)
-	fired, waiting := ex.placed[n-2], ex.placed[n-1] // enter places open, sl, tp
-	if exit == "tp" {
-		fired, waiting = waiting, fired
+	idx := ex.placed[len(ex.placed)-1].PositionIdx
+	price, kind := ex.tpsl[idx][0], "TakeProfit"
+	if exit == "sl" {
+		price, kind = ex.tpsl[idx][1], "StopLoss"
 	}
-	qty := parse(t, fired.Qty)
-	pnl := qty * (parse(t, fired.TriggerPrice) - ex.fillPrice)
-	if fired.Side == "Buy" { // closing a short
+	pnl := ex.positions[idx] * (parse(t, price) - ex.fillPrice)
+	if idx == 2 { // a short
 		pnl = -pnl
 	}
-	ex.positions[fired.PositionIdx] -= qty
 	ex.usdt += pnl
-	ex.stopOrders = []exchange.Order{{OrderID: waiting.OrderLinkID, OrderLinkID: waiting.OrderLinkID, Status: "Untriggered"}}
+	ex.positions[idx] = 0
+	delete(ex.tpsl, idx)
+	at := testNow.Add(time.Duration(candle)*4*time.Hour + time.Hour)
+	ex.history = append([]exchange.Order{{Status: "Filled", PositionIdx: idx, StopOrderType: kind, UpdatedTime: at}}, ex.history...)
 }
 
 // stakes are the USDT values of the entries at the last close 150.
@@ -72,7 +74,7 @@ func stakes(t *testing.T, ex *fakeExchange) []float64 {
 	t.Helper()
 	var out []float64
 	for _, o := range ex.placed {
-		if o.TriggerPrice == "" && !o.ReduceOnly {
+		if !o.ReduceOnly {
 			out = append(out, parse(t, o.Qty)*150)
 		}
 	}
@@ -88,7 +90,7 @@ func TestMartingaleStakeAfterStopLossAndTakeProfit(t *testing.T) {
 	s := martingaleStrategy(5)
 
 	tradeAt(t, b, s, 0) // 5% of 1000 USDT
-	closeDeal(t, ex, "sl")
+	closeDeal(t, ex, "sl", 0)
 	tradeAt(t, b, s, 1)
 
 	// Opened 0.3333 SOL at 150.123, SL 15 lower; TP return from the last close: 20/150.
@@ -102,7 +104,7 @@ func TestMartingaleStakeAfterStopLossAndTakeProfit(t *testing.T) {
 		t.Fatalf("buys %v, want 50 then %v", got, want)
 	}
 
-	closeDeal(t, ex, "tp")
+	closeDeal(t, ex, "tp", 1)
 	balance := ex.usdt
 	tradeAt(t, b, s, 2)
 	if st := b.state.get("SOLUSDT-L"); st.Losses != 0 || st.Loss != 0 {
@@ -119,7 +121,7 @@ func TestMartingaleStopsAfterMaxLosses(t *testing.T) {
 	s := martingaleStrategy(1)
 
 	tradeAt(t, b, s, 0)
-	closeDeal(t, ex, "sl")
+	closeDeal(t, ex, "sl", 0)
 	tradeAt(t, b, s, 1)
 	tradeAt(t, b, s, 2)
 
@@ -141,7 +143,7 @@ func TestMartingaleStopsWhenBalanceIsShort(t *testing.T) {
 	s := martingaleStrategy(5)
 
 	tradeAt(t, b, s, 0)
-	closeDeal(t, ex, "sl")
+	closeDeal(t, ex, "sl", 0)
 	ex.usdt = 60 // the next stake is ~95 USDT
 	tradeAt(t, b, s, 1)
 
@@ -161,7 +163,7 @@ func TestMartingaleStateSurvivesRestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	tradeAt(t, newMartingaleBot(t, ex, path), martingaleStrategy(5), 0)
 
-	closeDeal(t, ex, "sl")
+	closeDeal(t, ex, "sl", 0)
 	restarted := newMartingaleBot(t, ex, path)
 	tradeAt(t, restarted, martingaleStrategy(5), 1)
 
@@ -179,10 +181,9 @@ func TestMartingaleUnknownExitResetsSeries(t *testing.T) {
 	s := martingaleStrategy(5)
 
 	tradeAt(t, b, s, 0)
-	closeDeal(t, ex, "sl")
+	closeDeal(t, ex, "sl", 0)
 	tradeAt(t, b, s, 1)
-	closeDeal(t, ex, "sl")
-	ex.stopOrders = nil // both exits gone, e.g. cancelled by hand
+	ex.positions[1] = 0 // closed by hand: no TP/SL of this deal in the history
 	tradeAt(t, b, s, 2)
 
 	if st := b.state.get("SOLUSDT-L"); st.Losses != 0 || st.Loss != 0 {
@@ -201,7 +202,7 @@ func TestMartingaleShortStopLoss(t *testing.T) {
 	s := short(martingaleStrategy(5))
 
 	tradeAt(t, b, s, 0)
-	closeDeal(t, ex, "sl")
+	closeDeal(t, ex, "sl", 0)
 	tradeAt(t, b, s, 1)
 
 	loss := 0.3333 * 15.0

@@ -19,9 +19,11 @@ type Exchange interface {
 	GetInstrument(symbol string) (exchange.Instrument, error)
 	GetFreeBalance(coin string) (float64, error)
 	SetupHedge(symbol string) error
-	GetPositionSize(symbol string, positionIdx int) (float64, error)
+	GetPosition(symbol string, positionIdx int) (exchange.Position, error)
 	PlaceOrder(req exchange.OrderRequest) (string, error)
+	SetTradingStop(symbol string, positionIdx int, takeProfit, stopLoss string) error
 	GetClosedOrder(symbol, orderID string) (exchange.Order, bool, error)
+	GetFilledOrders(symbol string) ([]exchange.Order, error)
 	GetOpenStopOrders(symbol string) ([]exchange.Order, error)
 	CancelStopOrder(symbol, orderID string) error
 }
@@ -215,27 +217,29 @@ func (b *Bot) trade(s config.StrategyConfig, signal bool, lastClose float64) err
 		return fmt.Errorf("instrument: %w", err)
 	}
 
-	size, err := b.ex.GetPositionSize(s.Symbol, positionIdx(s))
+	pos, err := b.ex.GetPosition(s.Symbol, positionIdx(s))
 	if err != nil {
 		return fmt.Errorf("position: %w", err)
 	}
-	if size > 0 {
-		b.logf(s, "Position open (%s %s), waiting for TP/SL", inst.FormatQty(size), inst.BaseCoin)
-		if exits, err := b.botStopOrders(s); err == nil && len(exits) == 0 {
-			b.logf(s, "WARNING: position has no TP/SL orders of the bot, close it or add them by hand")
+	if pos.Size > 0 {
+		b.logf(s, "Position open (%s %s), waiting for TP/SL", inst.FormatQty(pos.Size), inst.BaseCoin)
+		if pos.StopLoss == 0 {
+			if exits, err := b.botStopOrders(s); err == nil && len(exits) == 0 {
+				b.logf(s, "WARNING: position has no stop loss, close it or set TP/SL by hand")
+			}
 		}
 		return nil
 	}
 
-	// Before cancelStaleExits: the exit left over shows how the deal closed.
 	if s.Martingale > 0 {
 		if err := b.settle(s); err != nil {
 			return fmt.Errorf("martingale: %w", err)
 		}
 	}
 
-	// The position is gone, so TP or SL has fired. The other one is still
-	// waiting and would close the next position at a stale price.
+	// Positions opened before TP/SL moved onto the position were protected by
+	// two conditional orders: when one fires, the other keeps waiting and would
+	// close the next position at a stale price.
 	if err := b.cancelStaleExits(s); err != nil {
 		return fmt.Errorf("cancel stale exit orders: %w", err)
 	}
@@ -311,8 +315,8 @@ func (b *Bot) cancelStaleExits(s config.StrategyConfig) error {
 }
 
 // enter opens the strategy's side with deposit_percent of the free USDT balance
-// (leverage 1x: the order value is the margin), then protects it with two
-// conditional reduce-only market orders, the stop loss first.
+// (leverage 1x: the order value is the margin), then sets TP and SL on the
+// position: whichever fires closes it, and Bybit cancels the other.
 func (b *Bot) enter(s config.StrategyConfig, inst exchange.Instrument, lastClose float64) (err error) {
 	decimals := *s.Decimals
 	idx := positionIdx(s)
@@ -365,7 +369,7 @@ func (b *Bot) enter(s config.StrategyConfig, inst exchange.Instrument, lastClose
 	}
 
 	// Bybit caps orderLinkId at 36 characters: milliseconds in base 36 (8 digits)
-	// and short suffixes keep even "tb-1000000BABYDOGEUSDT-L-…-sl" within it.
+	// and short suffixes keep even "tb-1000000BABYDOGEUSDT-L-…-c" within it.
 	linkID := orderLinkPrefix + s.Key() + "-" + strconv.FormatInt(b.now().UnixMilli(), 36)
 
 	b.logf(s, "Signal: market %s %s %s (%.2f %s)", strings.ToLower(openSide), inst.FormatQty(qty), inst.BaseCoin, qty*lastClose, inst.QuoteCoin)
@@ -389,38 +393,30 @@ func (b *Bot) enter(s config.StrategyConfig, inst exchange.Instrument, lastClose
 	}
 
 	// The side belongs to this strategy alone: its size is exactly what to protect.
-	size, err := b.ex.GetPositionSize(s.Symbol, idx)
+	pos, err := b.ex.GetPosition(s.Symbol, idx)
 	if err != nil {
 		return fmt.Errorf("UNPROTECTED POSITION: position size after order %s: %w", orderID, err)
 	}
-	if size <= 0 {
+	if pos.Size <= 0 {
 		return fmt.Errorf("no position to protect after order %s", orderID)
 	}
-	posQty := inst.FormatQty(size)
+	posQty := inst.FormatQty(pos.Size)
 
 	tp, sl := TpSlPrices(entry, s.TakeProfit, s.StopLoss, decimals, s.Short())
 	tpPrice, slPrice := inst.FormatPrice(tp), inst.FormatPrice(sl)
-	tpDir, slDir := exchange.TriggerRise, exchange.TriggerFall
-	if s.Short() {
-		tpDir, slDir = slDir, tpDir
-	}
 
-	// Stop loss first: if the take profit fails, the loss is still capped.
-	if _, err := b.ex.PlaceOrder(exchange.StopMarket(s.Symbol, closeSide, posQty, slPrice, slDir, idx, linkID+"-sl")); err != nil {
+	if err := b.ex.SetTradingStop(s.Symbol, idx, tpPrice, slPrice); err != nil {
 		// A position without a stop must not stay open.
 		if _, cerr := b.ex.PlaceOrder(exchange.MarketOrder(s.Symbol, closeSide, posQty, idx, true, linkID+"-c")); cerr != nil {
-			return fmt.Errorf("UNPROTECTED POSITION: stop loss at %s: %w; closing at market: %v", slPrice, err, cerr)
+			return fmt.Errorf("UNPROTECTED POSITION: TP %s / SL %s: %w; closing at market: %v", tpPrice, slPrice, err, cerr)
 		}
-		return fmt.Errorf("stop loss at %s: %w; the position was closed at market", slPrice, err)
+		return fmt.Errorf("TP %s / SL %s: %w; the position was closed at market", tpPrice, slPrice, err)
 	}
 	if s.Martingale > 0 {
-		deal := &openDeal{LinkID: linkID, Entry: entry, Qty: size, SLPrice: sl}
+		deal := &openDeal{Opened: b.now(), Entry: entry, Qty: pos.Size, SLPrice: sl}
 		if err := b.state.update(s.Key(), func(st *seriesState) { st.Base, st.Open = base, deal }); err != nil {
 			b.notifyf(s, "⚠️ %s: не удалось сохранить состояние мартингейла (%v), исход этой сделки не попадёт в серию", title(s), err)
 		}
-	}
-	if _, err := b.ex.PlaceOrder(exchange.StopMarket(s.Symbol, closeSide, posQty, tpPrice, tpDir, idx, linkID+"-tp")); err != nil {
-		return fmt.Errorf("take profit at %s: %w", tpPrice, err)
 	}
 
 	verb := "куплено"
