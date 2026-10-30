@@ -98,6 +98,7 @@ const (
 	IndicatorTypeEnum_INDICATOR_TYPE_DEMA        IndicatorTypeEnum = 3
 	IndicatorTypeEnum_INDICATOR_TYPE_TEMA        IndicatorTypeEnum = 4
 	IndicatorTypeEnum_INDICATOR_TYPE_TEMA_ZERO   IndicatorTypeEnum = 5
+	IndicatorTypeEnum_INDICATOR_TYPE_LWMA        IndicatorTypeEnum = 6
 )
 
 // Enum value maps for IndicatorTypeEnum.
@@ -109,6 +110,7 @@ var (
 		3: "INDICATOR_TYPE_DEMA",
 		4: "INDICATOR_TYPE_TEMA",
 		5: "INDICATOR_TYPE_TEMA_ZERO",
+		6: "INDICATOR_TYPE_LWMA",
 	}
 	IndicatorTypeEnum_value = map[string]int32{
 		"INDICATOR_TYPE_UNSPECIFIED": 0,
@@ -117,6 +119,7 @@ var (
 		"INDICATOR_TYPE_DEMA":        3,
 		"INDICATOR_TYPE_TEMA":        4,
 		"INDICATOR_TYPE_TEMA_ZERO":   5,
+		"INDICATOR_TYPE_LWMA":        6,
 	}
 )
 
@@ -711,14 +714,15 @@ const file_api_quotes_proto_rawDesc = "" +
 	"\fTIMEFRAME_1H\x10\x05\x12\x10\n" +
 	"\fTIMEFRAME_4H\x10\x06\x12\x10\n" +
 	"\fTIMEFRAME_1D\x10\a\x12\x10\n" +
-	"\fTIMEFRAME_1W\x10\b*\xb3\x01\n" +
+	"\fTIMEFRAME_1W\x10\b*\xcc\x01\n" +
 	"\x11IndicatorTypeEnum\x12\x1e\n" +
 	"\x1aINDICATOR_TYPE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12INDICATOR_TYPE_SMA\x10\x01\x12\x16\n" +
 	"\x12INDICATOR_TYPE_EMA\x10\x02\x12\x17\n" +
 	"\x13INDICATOR_TYPE_DEMA\x10\x03\x12\x17\n" +
 	"\x13INDICATOR_TYPE_TEMA\x10\x04\x12\x1c\n" +
-	"\x18INDICATOR_TYPE_TEMA_ZERO\x10\x05*\xc5\x02\n" +
+	"\x18INDICATOR_TYPE_TEMA_ZERO\x10\x05\x12\x17\n" +
+	"\x13INDICATOR_TYPE_LWMA\x10\x06*\xc5\x02\n" +
 	"\x0eSourceTypeEnum\x12\x1b\n" +
 	"\x17SOURCE_TYPE_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rSOURCE_TYPE_L\x10\x01\x12\x11\n" +

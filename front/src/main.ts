@@ -129,6 +129,7 @@ function getIndicatorTypeCode(type: IndicatorTypeEnum): string {
     case IndicatorTypeEnum.INDICATOR_TYPE_DEMA: return 'dema';
     case IndicatorTypeEnum.INDICATOR_TYPE_TEMA: return 'tema';
     case IndicatorTypeEnum.INDICATOR_TYPE_TEMA_ZERO: return 'temazero';
+    case IndicatorTypeEnum.INDICATOR_TYPE_LWMA: return 'lwma';
     default: return 'sma';
   }
 }
@@ -552,7 +553,7 @@ function init() {
   };
 
   const typeMap: Record<string, string> = {
-    'sma': '1', 'ema': '2', 'dema': '3', 'tema': '4', 'temazero': '5', 'temaZero': '5'
+    'sma': '1', 'ema': '2', 'dema': '3', 'tema': '4', 'temazero': '5', 'temaZero': '5', 'lwma': '6'
   };
 
   const sourceMap: Record<string, string> = {

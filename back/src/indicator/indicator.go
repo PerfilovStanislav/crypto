@@ -8,6 +8,7 @@ const (
 	Dema     Type = "dema"
 	Tema     Type = "tema"
 	TemaZero Type = "temaZero"
+	Lwma     Type = "lwma"
 )
 
 func (t Type) CalculateIndicatorPrices(prices []float64, coef float64) []float64 {
@@ -22,6 +23,8 @@ func (t Type) CalculateIndicatorPrices(prices []float64, coef float64) []float64
 		return calculateTema(prices, coef)
 	case TemaZero:
 		return calculateTemaZero(prices, coef)
+	case Lwma:
+		return calculateLwma(prices, int(coef))
 	}
 
 	return nil

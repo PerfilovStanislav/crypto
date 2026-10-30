@@ -10,6 +10,7 @@ pub enum IndicatorType {
     Dema,
     Tema,
     TemaZero,
+    Lwma,
 }
 
 impl IndicatorType {
@@ -20,10 +21,11 @@ impl IndicatorType {
             Self::Dema => "dema",
             Self::Tema => "tema",
             Self::TemaZero => "temaZero",
+            Self::Lwma => "lwma",
         }
     }
 
-    /// Для SMA `coef` — длина окна (дробная часть отбрасывается), для остальных — множитель EMA.
+    /// Для SMA и LWMA `coef` — длина окна (дробная часть отбрасывается), для остальных — множитель EMA.
     pub fn calculate(self, prices: &[f64], coef: f64) -> Vec<f64> {
         match self {
             Self::Sma => sma(prices, coef as i64),
@@ -31,6 +33,7 @@ impl IndicatorType {
             Self::Dema => dema(prices, coef),
             Self::Tema => tema(prices, coef),
             Self::TemaZero => tema_zero(prices, coef),
+            Self::Lwma => lwma(prices, coef as i64),
         }
     }
 }
@@ -58,6 +61,24 @@ fn sma(prices: &[f64], n: i64) -> Vec<f64> {
         result[i] = result[i - 1] + (prices[i] - prices[i - n]) / n as f64;
     }
     result
+}
+
+/// Линейно-взвешенное среднее, как MODE_LWMA в MT4: вес самой новой цены `n`,
+/// самой старой в окне — 1. Первые `n` значений — по доступному префиксу, окно `1..=len`.
+fn lwma(prices: &[f64], n: i64) -> Vec<f64> {
+    let n = n.clamp(1, prices.len().max(1) as i64) as usize;
+    (0..prices.len())
+        .map(|t| {
+            let window = &prices[(t + 1).saturating_sub(n)..=t];
+            let weighted: f64 = window
+                .iter()
+                .enumerate()
+                .map(|(i, p)| (i + 1) as f64 * p)
+                .sum();
+            let k = window.len() as f64;
+            weighted / (k * (k + 1.0) / 2.0)
+        })
+        .collect()
 }
 
 fn ema(prices: &[f64], multiplier: f64) -> Vec<f64> {
@@ -123,6 +144,26 @@ mod tests {
         assert_eq!(sma(&[], 3), Vec::<f64>::new());
         assert_eq!(sma(&[1.0, 2.0], 0).len(), 2);
         assert_eq!(sma(&[1.0, 2.0], 10).len(), 2);
+    }
+
+    #[test]
+    fn lwma_matches_hand_computed_weights() {
+        let prices = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let got = lwma(&prices, 3);
+        let want = [
+            1.0,
+            5.0 / 3.0,
+            14.0 / 6.0,
+            20.0 / 6.0,
+            26.0 / 6.0,
+            32.0 / 6.0,
+        ];
+        for (g, w) in got.iter().zip(want) {
+            assert!((g - w).abs() < 1e-12, "{got:?}");
+        }
+        assert_eq!(lwma(&[], 3), Vec::<f64>::new());
+        assert_eq!(lwma(&[1.0, 2.0], 0), [1.0, 2.0]);
+        assert_eq!(lwma(&[1.0, 2.0], 10).len(), 2);
     }
 
     #[test]

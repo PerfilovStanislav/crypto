@@ -154,9 +154,9 @@ func (s StrategyConfig) Key() string {
 
 func (ic IndicatorConfig) validate() error {
 	switch ic.Type {
-	case "sma":
+	case "sma", "lwma":
 		if ic.Coef < 1 || ic.Coef != math.Trunc(ic.Coef) {
-			return fmt.Errorf("sma coef is a period, must be an integer >= 1, got %v", ic.Coef)
+			return fmt.Errorf("%s coef is a period, must be an integer >= 1, got %v", ic.Type, ic.Coef)
 		}
 	case "ema", "dema", "tema", "temaZero":
 		// prev*(1-coef) diverges once |1-coef| >= 1

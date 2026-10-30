@@ -38,8 +38,8 @@ strategies:
     take_profit: 2000
     stop_loss: 1500
     # Entry: indicator2 > indicator1 on the last closed candle.
-    # coef is the period for sma and the multiplier (analyzer range 0.2-1.5)
-    # for ema, dema, tema, temaZero.
+    # coef is the period for sma and lwma and the multiplier (analyzer range
+    # 0.2-1.5) for ema, dema, tema, temaZero.
     # source: L O C H V LO LC LH OC OH CH LOC LOH LCH OCH
     indicator1:
       type: "sma"

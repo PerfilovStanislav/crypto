@@ -184,7 +184,8 @@ impl Analyzer {
             let main = self.coef_step(p).with_context(|| {
                 format!("no indicator config for {} {} {}", p.kind, p.source, p.coef)
             })?;
-            Ok(if p.kind == IndicatorType::Sma {
+            let period = matches!(p.kind, IndicatorType::Sma | IndicatorType::Lwma);
+            Ok(if period {
                 Span::around(p.coef, main, (main / COEF_SUBDIVISION).max(1.0), 1.0)
             } else {
                 let fine = main / COEF_SUBDIVISION;

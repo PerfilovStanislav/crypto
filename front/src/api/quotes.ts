@@ -45,6 +45,7 @@ export const IndicatorTypeEnum = {
   INDICATOR_TYPE_DEMA: 3,
   INDICATOR_TYPE_TEMA: 4,
   INDICATOR_TYPE_TEMA_ZERO: 5,
+  INDICATOR_TYPE_LWMA: 6,
   UNRECOGNIZED: -1,
 } as const;
 
@@ -57,6 +58,7 @@ export namespace IndicatorTypeEnum {
   export type INDICATOR_TYPE_DEMA = typeof IndicatorTypeEnum.INDICATOR_TYPE_DEMA;
   export type INDICATOR_TYPE_TEMA = typeof IndicatorTypeEnum.INDICATOR_TYPE_TEMA;
   export type INDICATOR_TYPE_TEMA_ZERO = typeof IndicatorTypeEnum.INDICATOR_TYPE_TEMA_ZERO;
+  export type INDICATOR_TYPE_LWMA = typeof IndicatorTypeEnum.INDICATOR_TYPE_LWMA;
   export type UNRECOGNIZED = typeof IndicatorTypeEnum.UNRECOGNIZED;
 }
 

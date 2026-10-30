@@ -38,6 +38,7 @@ enum IndicatorTypeEnum {
   INDICATOR_TYPE_DEMA = 3;
   INDICATOR_TYPE_TEMA = 4;
   INDICATOR_TYPE_TEMA_ZERO = 5;
+  INDICATOR_TYPE_LWMA = 6;
 }
 
 enum SourceTypeEnum {

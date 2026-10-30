@@ -248,6 +248,7 @@ fn indicator_type(v: i32) -> IndicatorType {
         3 => IndicatorType::Dema,
         4 => IndicatorType::Tema,
         5 => IndicatorType::TemaZero,
+        6 => IndicatorType::Lwma,
         _ => IndicatorType::Ema,
     }
 }

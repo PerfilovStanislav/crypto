@@ -25,6 +25,8 @@ func mapIndicatorType(t api.IndicatorTypeEnum) indicator.Type {
 		return indicator.Tema
 	case api.IndicatorTypeEnum_INDICATOR_TYPE_TEMA_ZERO:
 		return indicator.TemaZero
+	case api.IndicatorTypeEnum_INDICATOR_TYPE_LWMA:
+		return indicator.Lwma
 	default:
 		return indicator.Ema
 	}
