@@ -22,7 +22,14 @@ pub struct Config {
     pub db: DbConfig,
     pub http: HttpConfig,
     pub analyzer: AnalyzerConfig,
+    /// `<direction>/<PAIR>.yaml`, если пара задана: в его первую строку пишется лучший результат.
+    #[serde(skip)]
+    pub pair_file: Option<PathBuf>,
 }
+
+/// `analyzer.pair: all` (или `ANALYZER_PAIR=all`, или пара не задана) — перебор по всем парам
+/// `<direction>/*.yaml`.
+pub const ALL_PAIRS: &str = "all";
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
@@ -215,17 +222,31 @@ impl Config {
     }
 
     pub fn load_from(dir: &Path) -> Result<Self> {
+        Self::load_pair(dir, None)
+    }
+
+    /// Пара не задана или `all`: перебор идёт по всем парам направления.
+    pub fn all_pairs(&self) -> bool {
+        self.analyzer.pair.is_empty() || self.analyzer.pair == ALL_PAIRS
+    }
+
+    /// Конфиг с парой `pair` вместо `analyzer.pair` из `config.yaml` и env.
+    pub fn load_pair(dir: &Path, pair: Option<&str>) -> Result<Self> {
         let base = existing(dir.join("config.yaml"))?;
         let mut cfg: Config = Figment::new()
             .merge(Yaml::file(&base))
             .extract()
             .with_context(|| format!("failed to parse {}", base.display()))?;
         apply_env(&mut cfg)?;
+        if let Some(pair) = pair {
+            cfg.analyzer.pair = pair.to_string();
+        }
 
-        if !cfg.analyzer.pair.is_empty() {
+        if !cfg.all_pairs() {
+            let name = cfg.analyzer.pair.clone();
             let pair = existing(
                 dir.join(cfg.analyzer.direction.as_str())
-                    .join(format!("{}.yaml", cfg.analyzer.pair)),
+                    .join(format!("{name}.yaml")),
             )?;
             cfg = Figment::new()
                 .merge(Yaml::file(&base))
@@ -233,6 +254,9 @@ impl Config {
                 .extract()
                 .with_context(|| format!("failed to parse {}", pair.display()))?;
             apply_env(&mut cfg)?;
+            // `ANALYZER_PAIR=all` не должен подменить пару, которую сейчас грузим.
+            cfg.analyzer.pair = name;
+            cfg.pair_file = Some(pair);
         }
 
         if cfg.analyzer.decimals > 0 {
@@ -244,6 +268,37 @@ impl Config {
         cfg.analyzer.validate()?;
         Ok(cfg)
     }
+}
+
+/// Пары, для которых есть конфиг `<direction>/<PAIR>.yaml`, по алфавиту.
+pub fn pair_names(dir: &Path, direction: Direction) -> Result<Vec<String>> {
+    let dir = dir.join(direction.as_str());
+    let mut names = Vec::new();
+    for entry in std::fs::read_dir(&dir).with_context(|| format!("read {}", dir.display()))? {
+        let path = entry?.path();
+        if path.extension().is_some_and(|e| e == "yaml") {
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                names.push(stem.to_string());
+            }
+        }
+    }
+    names.sort();
+    Ok(names)
+}
+
+/// Пишет `# <line>` первой строкой конфига пары. Прежний результат (`# +…` или
+/// `# nothing found…`) заменяется, остальной файл не трогается.
+pub fn write_best(pair_file: &Path, line: &str) -> Result<()> {
+    let text = std::fs::read_to_string(pair_file)
+        .with_context(|| format!("read {}", pair_file.display()))?;
+    let rest = match text.split_once('\n') {
+        Some((first, rest)) if first.starts_with("# +") || first.starts_with("# nothing found") => {
+            rest
+        }
+        _ => text.as_str(),
+    };
+    std::fs::write(pair_file, format!("# {line}\n{rest}"))
+        .with_context(|| format!("write {}", pair_file.display()))
 }
 
 /// `CONFIG_DIR` или ближайший каталог `configs/` с `config.yaml` вверх от текущего.
@@ -405,6 +460,47 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    #[test]
+    fn all_pairs_and_best_line() {
+        let dir = env::temp_dir().join(format!("all-pairs-test-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("buy")).unwrap();
+        std::fs::write(dir.join("config.yaml"), "analyzer:\n  pair: all\n").unwrap();
+        let ada = dir.join("buy").join("ADAUSDT.yaml");
+        std::fs::write(&ada, "# + 1.00% old\nanalyzer:\n  timeframe: 4h\n").unwrap();
+        std::fs::write(
+            dir.join("buy").join("BTCUSDT.yaml"),
+            "analyzer:\n  timeframe: 1h\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("buy").join("notes.txt"), "").unwrap();
+
+        let all = Config::load_from(&dir).unwrap();
+        assert_eq!(all.analyzer.pair, ALL_PAIRS);
+        assert_eq!(all.pair_file, None, "no pair file is needed for all pairs");
+        assert_eq!(
+            pair_names(&dir, Direction::Buy).unwrap(),
+            ["ADAUSDT", "BTCUSDT"]
+        );
+
+        let btc = Config::load_pair(&dir, Some("BTCUSDT")).unwrap();
+        assert_eq!(btc.analyzer.timeframe, "1h");
+        let btc_file = btc.pair_file.unwrap();
+
+        // Прежний результат заменяется, файл без него получает строку сверху.
+        write_best(&ada, "+ 277.66% ( 58)").unwrap();
+        write_best(&ada, "+ 300.00% ( 60)").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&ada).unwrap(),
+            "# + 300.00% ( 60)\nanalyzer:\n  timeframe: 4h\n"
+        );
+        write_best(&btc_file, "nothing found").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&btc_file).unwrap(),
+            "# nothing found\nanalyzer:\n  timeframe: 1h\n"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// Конфиги репозитория читаются из `configs/`. `config.yaml` не в git — без него тест пропускается.
     #[test]
     fn loads_repo_configs() {
@@ -412,8 +508,11 @@ mod tests {
             eprintln!("skip: configs/config.yaml not found");
             return;
         };
-        let cfg = Config::load_from(&dir).unwrap();
-        assert!(!cfg.analyzer.pair.is_empty());
+        let mut cfg = Config::load_from(&dir).unwrap();
+        if cfg.all_pairs() {
+            let names = pair_names(&dir, cfg.analyzer.direction).unwrap();
+            cfg = Config::load_pair(&dir, Some(&names[0])).unwrap();
+        }
         assert!(!cfg.analyzer.indicators.is_empty(), "pair config is merged");
     }
 }

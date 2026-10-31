@@ -1,4 +1,4 @@
-# + 160.82% ( 50)   1.93% ( 90)  [pr/dd:83.43  pr/cnd:0.0214]  ind1:[     ema  CH  1.16]  ind2:[     ema   L  1.38]  tp:47650  sl:11550  http://localhost/?tf=1h&tp=47650&sl=11550&i1=ema,1.16,CH&i2=ema,1.38,L
+# + 146.65% ( 53)   1.70% (136)  [pr/dd:86.51  pr/cnd:0.0189]  ind1:[    tema  CH  0.58]  ind2:[    tema   C  0.39]  tp:45400  sl:10350  http://localhost/?tf=1h&tp=45400&sl=10350&i1=tema,0.58,CH&i2=tema,0.39,C
 analyzer:
   timeframe: "1h"
 

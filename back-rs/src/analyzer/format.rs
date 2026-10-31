@@ -15,6 +15,26 @@ pub(crate) fn clr(text: &str, code: u8) -> String {
     format!("\x1b[{code}m{text}\x1b[0m")
 }
 
+impl TaskResult {
+    /// Строка результата без цветов — для первой строки конфига пары.
+    pub fn plain(&self) -> String {
+        plain(&self.to_string())
+    }
+}
+
+fn plain(colored: &str) -> String {
+    let mut out = String::with_capacity(colored.len());
+    let mut chars = colored.chars();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            chars.by_ref().find(|&c| c == 'm');
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 pub(crate) fn header() -> String {
     format!(
         "{} {}",
@@ -182,6 +202,12 @@ impl fmt::Display for Refinement {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plain_drops_colors() {
+        let line = format!("{} ({})", clr("+ 277.66%", HI_GREEN), clr(" 58", HI_GREEN));
+        assert_eq!(plain(&line), "+ 277.66% ( 58)");
+    }
 
     #[test]
     fn fmt_g_matches_go() {

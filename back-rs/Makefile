@@ -11,7 +11,7 @@ FEATURES ?= gpu
 CARGO_FLAGS := --profile $(PROFILE) --features $(FEATURES)
 BIN := target/$(PROFILE)/crypto-back
 
-.PHONY: help build run gpu cpu server test test-clickhouse bench golden lint clean
+.PHONY: help build run gpu gpu-all cpu server test test-clickhouse bench golden lint clean
 
 help: ## список команд
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-16s %s\n", $$1, $$2}'
@@ -24,6 +24,9 @@ run: build ## запустить по configs/config.yaml
 
 gpu: build ## перебор стратегий на GPU
 	ANALYZER_ACTIVE=true ANALYZER_GPU=true $(BIN)
+
+gpu-all: build ## перебор на GPU по всем парам configs/<direction>/, лучшие — в первую строку их файлов
+	ANALYZER_PAIR=all ANALYZER_ACTIVE=true ANALYZER_GPU=true $(BIN)
 
 cpu: build ## перебор стратегий на CPU
 	ANALYZER_ACTIVE=true ANALYZER_GPU=false $(BIN)
