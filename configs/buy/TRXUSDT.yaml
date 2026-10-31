@@ -17,8 +17,8 @@ analyzer:
     step: 1
   stoploss:
     start: 20
-    end: 40
-    step: 1
+    end: 400
+    step: 2
 
   indicators:
     # 1-ая группа индикаторов
