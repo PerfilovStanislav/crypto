@@ -3,8 +3,6 @@
 //! GPU не умеет f64, поэтому он только отбирает кандидатов: пары × TP/SL, у которых верхняя
 //! оценка weighted pr/dd с запасом на погрешность f32 больше порога. Точный расчёт кандидатов
 //! делает CPU (`evaluate_trades`), так что результат тот же, что у CPU-перебора.
-//! С мартингейлом GPU так же отбирает кандидатов по серии сделок в f32 (ядро `martingale`),
-//! а CPU пересчитывает их в `evaluate_martingale`.
 
 use std::borrow::Cow;
 
@@ -12,7 +10,7 @@ use anyhow::{bail, Context, Result};
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
-use super::{signal_words, Analyzer, Grid, Martingale};
+use super::{signal_words, Analyzer, Grid};
 
 /// Сколько пар обрабатывается за один запуск: ~0.1–0.5 с работы GPU.
 pub const PAIRS_PER_BATCH: usize = 8192;
@@ -21,10 +19,6 @@ pub const PAIRS_PER_BATCH: usize = 8192;
 const CAPACITY: u32 = 1 << 20;
 
 const WORKGROUP: u32 = 64;
-
-/// Флаги исхода в `close` для ядра `martingale`: SL (coef < cms) и прибыль (coef > 1).
-const SL_BIT: u32 = 1 << 31;
-const WIN_BIT: u32 = 1 << 30;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -46,10 +40,6 @@ struct Params {
     threshold: f32,
     /// `ln(minWeightedCoef)`, округлённый вниз до f32.
     min_log: f32,
-    m_coef: f32,
-    m_base: f32,
-    max_losses: u32,
-    one_minus_cms: f32,
 }
 
 pub struct GpuScout {
@@ -67,8 +57,6 @@ pub struct GpuScout {
     len: u32,
     /// u32-слов маски на пару.
     words: u32,
-    martingale: Option<Martingale>,
-    one_minus_cms: f32,
     pub adapter: String,
 }
 
@@ -83,12 +71,6 @@ impl GpuScout {
         if tp_sl.div_ceil(WORKGROUP as usize) > u16::MAX as usize {
             bail!("too many TP/SL combinations for one GPU dispatch: {tp_sl}");
         }
-        if len >= WIN_BIT as usize {
-            bail!("too many candles for the GPU: {len}");
-        }
-        let martingale = Martingale::from_config(&az.cfg);
-        // Как в `Series`: SL — множитель меньше cms.
-        let cms = (1.0 - az.cfg.commission) * (1.0 - az.cfg.commission);
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -101,20 +83,11 @@ impl GpuScout {
         let hot: Vec<GpuHot> = grid
             .tp_sl
             .iter()
-            .flat_map(|(_, o)| o.hot.iter().zip(&o.cold))
-            .map(|(h, c)| match martingale {
-                None => GpuHot {
-                    ln_coef: h.ln_coef as f32,
-                    drawdown: h.drawdown_floor,
-                    close: h.close,
-                },
-                Some(_) => GpuHot {
-                    ln_coef: (c.coef - 1.0) as f32,
-                    drawdown: c.drawdown as f32,
-                    close: h.close
-                        | if c.coef < cms { SL_BIT } else { 0 }
-                        | if c.coef > 1.0 { WIN_BIT } else { 0 },
-                },
+            .flat_map(|(_, o)| &o.hot)
+            .map(|h| GpuHot {
+                ln_coef: h.ln_coef as f32,
+                drawdown: h.drawdown_floor,
+                close: h.close,
             })
             .collect();
         let hot_bytes = (hot.len() * std::mem::size_of::<GpuHot>()) as u64;
@@ -147,11 +120,7 @@ impl GpuScout {
             label: Some("scout"),
             layout: None,
             module: &module,
-            entry_point: Some(if martingale.is_some() {
-                "martingale"
-            } else {
-                "main"
-            }),
+            entry_point: Some("main"),
             compilation_options: Default::default(),
             cache: None,
         });
@@ -196,27 +165,8 @@ impl GpuScout {
         let counter_read = storage("counter_read", 4, read);
         let found_read = storage("found_read", CAPACITY as u64 * 8, read);
 
-        // Ядру `martingale` нужны ещё цены входа и cms·tp каждого TP/SL.
-        let f32_buffer = |label, data: Vec<f32>| {
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(label),
-                contents: bytemuck::cast_slice(&data),
-                usage: wgpu::BufferUsages::STORAGE,
-            })
-        };
-        let martingale_inputs = martingale.map(|_| {
-            let opens = az.quotes.opens.iter().map(|&o| o as f32).collect();
-            let tp_cms = grid
-                .tp_sl
-                .iter()
-                .map(|(p, _)| (cms * p.tp) as f32)
-                .collect();
-            [f32_buffer("opens", opens), f32_buffer("tp_cms", tp_cms)]
-        });
-
         let entries: Vec<wgpu::BindGroupEntry> = [&params, &bits, &hot, &weights, &counter, &found]
             .into_iter()
-            .chain(martingale_inputs.iter().flatten())
             .enumerate()
             .map(|(binding, buffer)| wgpu::BindGroupEntry {
                 binding: binding as u32,
@@ -243,8 +193,6 @@ impl GpuScout {
             tp_sl: tp_sl as u32,
             len: len as u32,
             words,
-            martingale,
-            one_minus_cms: (1.0 - cms) as f32,
             adapter: format!("{} ({:?})", info.name, info.backend),
         })
     }
@@ -275,10 +223,6 @@ impl GpuScout {
             capacity: CAPACITY,
             threshold: threshold as f32,
             min_log: super::fast::f32_floor(filters.min_log),
-            m_coef: self.martingale.map_or(0.0, |m| m.coef as f32),
-            m_base: self.martingale.map_or(0.0, |m| m.base as f32),
-            max_losses: self.martingale.map_or(0, |m| m.max_losses as u32),
-            one_minus_cms: self.one_minus_cms,
         };
         self.queue
             .write_buffer(&self.params, 0, bytemuck::bytes_of(&params));

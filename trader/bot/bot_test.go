@@ -24,7 +24,6 @@ type fakeExchange struct {
 	usdt       float64
 	positions  map[int]float64   // positionIdx -> size
 	tpsl       map[int][2]string // positionIdx -> TP, SL price
-	history    []exchange.Order  // filled orders, newest first
 	stopOrders []exchange.Order  // conditional orders of the old version
 	fillPrice  float64
 
@@ -78,10 +77,6 @@ func (f *fakeExchange) GetPosition(symbol string, positionIdx int) (exchange.Pos
 func (f *fakeExchange) SetTradingStop(symbol string, positionIdx int, takeProfit, stopLoss string) error {
 	f.tpsl[positionIdx] = [2]string{takeProfit, stopLoss}
 	return nil
-}
-
-func (f *fakeExchange) GetFilledOrders(symbol string) ([]exchange.Order, error) {
-	return f.history, nil
 }
 
 func (f *fakeExchange) PlaceOrder(req exchange.OrderRequest) (string, error) {

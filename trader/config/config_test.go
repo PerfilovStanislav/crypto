@@ -42,8 +42,6 @@ strategies:
 		{"unknown type", "type: ema", "type: wma", "unknown type"},
 		{"no stop loss", "stop_loss: 1500", "stop_loss: 0", "stop_loss"},
 		{"deposit over 100", "deposit_percent: 5", "deposit_percent: 150", "deposit_percent"},
-		{"martingale", "stop_loss: 1500", "stop_loss: 1500\n    martingale: 1.2\n    max_losses: 5", ""},
-		{"negative max_losses", "stop_loss: 1500", "stop_loss: 1500\n    max_losses: -1", "max_losses"},
 		{"short", "stop_loss: 1500", "stop_loss: 1500\n    direction: sell", ""},
 		{"bad direction", "stop_loss: 1500", "stop_loss: 1500\n    direction: short", "direction"},
 		{"telegram is optional", `telegram: {token: "1:abc", chat_id: "42"}`, "", ""},

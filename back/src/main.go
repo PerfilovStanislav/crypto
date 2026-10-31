@@ -32,9 +32,9 @@ func run() error {
 	runtime.ReadMemStats(&m)
 
 	cfg := config.Init()
-	// Иначе и перебор, и HTTP API молча считали бы шорт и мартингейл как обычный лонг.
-	if cfg.Analyzer.Direction == "sell" || cfg.Analyzer.Martingale > 0 {
-		return fmt.Errorf("the Go version supports only direction buy without martingale; use back-rs")
+	// Иначе и перебор, и HTTP API молча считали бы шорт как обычный лонг.
+	if cfg.Analyzer.Direction == "sell" {
+		return fmt.Errorf("the Go version supports only direction buy; use back-rs")
 	}
 	log := logger.New(cfg.Log)
 

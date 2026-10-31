@@ -467,11 +467,6 @@ type Order struct {
 	Status      string
 	AvgPrice    float64
 	CumExecQty  float64
-	PositionIdx int
-	// StopOrderType is "StopLoss" or "TakeProfit" for the position's TP/SL,
-	// "Stop" for a plain conditional order, "" for an ordinary one.
-	StopOrderType string
-	UpdatedTime   time.Time
 }
 
 // Closed reports whether the order reached a final status.
@@ -484,18 +479,15 @@ func (o Order) Closed() bool {
 }
 
 type orderJSON struct {
-	OrderID       string `json:"orderId"`
-	OrderLinkID   string `json:"orderLinkId"`
-	OrderStatus   string `json:"orderStatus"`
-	AvgPrice      string `json:"avgPrice"`
-	CumExecQty    string `json:"cumExecQty"`
-	PositionIdx   int    `json:"positionIdx"`
-	StopOrderType string `json:"stopOrderType"`
-	UpdatedTime   string `json:"updatedTime"`
+	OrderID     string `json:"orderId"`
+	OrderLinkID string `json:"orderLinkId"`
+	OrderStatus string `json:"orderStatus"`
+	AvgPrice    string `json:"avgPrice"`
+	CumExecQty  string `json:"cumExecQty"`
 }
 
-func (c *Client) listOrders(endpoint string, query url.Values) ([]Order, error) {
-	result, err := c.get(endpoint, query, true)
+func (c *Client) listOrders(query url.Values) ([]Order, error) {
+	result, err := c.get("/v5/order/realtime", query, true)
 	if err != nil {
 		return nil, err
 	}
@@ -517,19 +509,12 @@ func (c *Client) listOrders(endpoint string, query url.Values) ([]Order, error) 
 		if err != nil {
 			return nil, fmt.Errorf("order %s: cumExecQty: %w", o.OrderID, err)
 		}
-		updated, err := parseOptionalFloat(o.UpdatedTime)
-		if err != nil {
-			return nil, fmt.Errorf("order %s: updatedTime: %w", o.OrderID, err)
-		}
 		orders = append(orders, Order{
-			OrderID:       o.OrderID,
-			OrderLinkID:   o.OrderLinkID,
-			Status:        o.OrderStatus,
-			AvgPrice:      avg,
-			CumExecQty:    qty,
-			PositionIdx:   o.PositionIdx,
-			StopOrderType: o.StopOrderType,
-			UpdatedTime:   time.UnixMilli(int64(updated)).UTC(),
+			OrderID:     o.OrderID,
+			OrderLinkID: o.OrderLinkID,
+			Status:      o.OrderStatus,
+			AvgPrice:    avg,
+			CumExecQty:  qty,
 		})
 	}
 	return orders, nil
@@ -545,7 +530,7 @@ func (c *Client) GetClosedOrder(symbol, orderID string) (order Order, found bool
 	query.Set("orderId", orderID)
 	query.Set("openOnly", "1")
 
-	orders, err := c.listOrders("/v5/order/realtime", query)
+	orders, err := c.listOrders(query)
 	if err != nil {
 		return Order{}, false, err
 	}
@@ -565,19 +550,7 @@ func (c *Client) GetOpenStopOrders(symbol string) ([]Order, error) {
 	query.Set("orderFilter", "StopOrder")
 	query.Set("limit", "50") // the maximum page
 
-	return c.listOrders("/v5/order/realtime", query)
-}
-
-// GetFilledOrders lists the latest filled orders of a USDT perpetual, newest
-// first; Bybit keeps them in the history for 7 days.
-func (c *Client) GetFilledOrders(symbol string) ([]Order, error) {
-	query := url.Values{}
-	query.Set("category", "linear")
-	query.Set("symbol", symbol)
-	query.Set("orderStatus", "Filled")
-	query.Set("limit", "50") // the maximum page
-
-	return c.listOrders("/v5/order/history", query)
+	return c.listOrders(query)
 }
 
 func (c *Client) CancelStopOrder(symbol, orderID string) error {

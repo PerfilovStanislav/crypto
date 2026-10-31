@@ -110,13 +110,6 @@ pub struct AnalyzerConfig {
     pub min_tp_sl_ratio: f64,
     /// Порог взвешенного роста капитала в фильтре перебора. 0 — по умолчанию, 2.
     pub min_weighted_coef: f64,
-    /// Мартингейл: после SL ставка растёт, чтобы TP вернул убыток серии × N сверх обычной
-    /// прибыли (см. `analyzer/martingale.rs`). 0 — выключен, каждая сделка на весь капитал.
-    pub martingale: f64,
-    /// Первая сделка серии мартингейла, % капитала.
-    pub deposit_percent: f64,
-    /// Столько SL подряд при мартингейле отбрасывают стратегию. 0 — без ограничения.
-    pub max_losses: usize,
     pub takeprofit: RangeConfig,
     pub stoploss: RangeConfig,
     pub indicators: Vec<Vec<IndicatorConfig>>,
@@ -202,15 +195,6 @@ impl AnalyzerConfig {
                 "analyzer.minRecentSignals is {}, but analyzer.recentMonths is 0: \
                  there are no recent signals in 0 months, so no indicator pair would pass",
                 self.min_recent_signals
-            );
-        }
-        if !(self.martingale >= 0.0) {
-            bail!("analyzer.martingale must be >= 0, got {}", self.martingale);
-        }
-        if self.martingale > 0.0 && !(self.deposit_percent > 0.0 && self.deposit_percent <= 100.0) {
-            bail!(
-                "analyzer.depositPercent must be in (0, 100] with martingale, got {}",
-                self.deposit_percent
             );
         }
         Ok(())
@@ -325,9 +309,6 @@ fn apply_env(cfg: &mut Config) -> Result<()> {
     env_parse("ANALYZER_FAN_SPEED", &mut a.fan_speed)?;
     env_parse("ANALYZER_MIN_TP_SL_RATIO", &mut a.min_tp_sl_ratio)?;
     env_parse("ANALYZER_MIN_WEIGHTED_COEF", &mut a.min_weighted_coef)?;
-    env_parse("ANALYZER_MARTINGALE", &mut a.martingale)?;
-    env_parse("ANALYZER_DEPOSIT_PERCENT", &mut a.deposit_percent)?;
-    env_parse("ANALYZER_MAX_LOSSES", &mut a.max_losses)?;
     if let Some(v) = env_value("ANALYZER_ACTIVE") {
         a.active = parse_bool(&v).context("ANALYZER_ACTIVE")?;
     }

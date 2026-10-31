@@ -8,7 +8,6 @@ mod fast;
 mod format;
 #[cfg(feature = "gpu")]
 pub mod gpu;
-mod martingale;
 mod refine;
 
 use std::collections::{HashMap, HashSet};
@@ -24,7 +23,6 @@ pub use fast::{
     evaluate_trades, fill_signal_bits, scout, scout_interleaved, signal_weights, signal_words,
     ColdOutcome, Filters, HotOutcome, Outcomes,
 };
-pub use martingale::{evaluate_martingale, Martingale, Series};
 pub use refine::{Refined, Refinement, Span, MAX_REFINE_ROUNDS};
 
 use crate::config::{AnalyzerConfig, RangeConfig};
@@ -505,17 +503,6 @@ impl Analyzer {
             fill_signal_bits(bits, &grid.prices[cmp.ind1], &grid.prices[cmp.ind2]);
         }
 
-        if tracker.martingale.is_some() {
-            // shortcut: на CPU с мартингейлом нет быстрого прохода, каждая стратегия считается
-            // точно; быстрый отсев есть только на GPU (`gpu.rs`, ядро `martingale`).
-            for t in 0..grid.tp_sl.len() {
-                for (cmp, bits) in block.iter().zip(signals.chunks_exact(words)) {
-                    tracker.consider(cmp, t, bits, f64::INFINITY);
-                }
-            }
-            return;
-        }
-
         for (t, (_, outcomes)) in grid.tp_sl.iter().enumerate() {
             let lanes = block
                 .chunks_exact(LANES)
@@ -757,7 +744,6 @@ struct Tracker<'a> {
     max_bits: AtomicU64,
     best: Mutex<Option<TaskResult>>,
     filters: Filters,
-    martingale: Option<Martingale>,
 }
 
 impl<'a> Tracker<'a> {
@@ -774,7 +760,6 @@ impl<'a> Tracker<'a> {
             max_bits: AtomicU64::new(floor.to_bits()),
             best: Mutex::new(None),
             filters: analyzer.filters(),
-            martingale: Martingale::from_config(&analyzer.cfg),
         }
     }
 
@@ -788,25 +773,7 @@ impl<'a> Tracker<'a> {
             return;
         }
         let (param, outcomes) = &self.grid.tp_sl[t];
-        let weights = &self.grid.weights;
-        let metrics = match self.martingale {
-            Some(m) => {
-                let az = self.analyzer;
-                let series = Series::new(m, az.cfg.commission);
-                let opens = &az.quotes.opens;
-                evaluate_martingale(
-                    bits,
-                    outcomes,
-                    weights,
-                    opens,
-                    param.tp,
-                    series,
-                    self.filters,
-                )
-            }
-            None => evaluate_trades(bits, outcomes, weights, self.filters),
-        };
-        if let Some(metrics) = metrics {
+        if let Some(metrics) = evaluate_trades(bits, outcomes, &self.grid.weights, self.filters) {
             self.report(cmp, param, metrics);
         }
     }

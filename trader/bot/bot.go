@@ -23,7 +23,6 @@ type Exchange interface {
 	PlaceOrder(req exchange.OrderRequest) (string, error)
 	SetTradingStop(symbol string, positionIdx int, takeProfit, stopLoss string) error
 	GetClosedOrder(symbol, orderID string) (exchange.Order, bool, error)
-	GetFilledOrders(symbol string) ([]exchange.Order, error)
 	GetOpenStopOrders(symbol string) ([]exchange.Order, error)
 	CancelStopOrder(symbol, orderID string) error
 }
@@ -45,7 +44,6 @@ type Bot struct {
 	cfg    *config.Config
 	ex     Exchange
 	notify Notifier
-	state  *stateStore // martingale series; loaded in Run when a strategy uses it
 
 	now           func() time.Time
 	candlePoll    time.Duration // wait between attempts to get the closed candle
@@ -69,14 +67,6 @@ func New(cfg *config.Config, ex Exchange, notify Notifier) *Bot {
 
 func (b *Bot) Run(ctx context.Context) error {
 	log.Println("Starting trading bot...")
-
-	if b.state == nil && usesMartingale(b.cfg) {
-		st, err := loadState(b.cfg.StateFile)
-		if err != nil {
-			return fmt.Errorf("martingale state: %w", err)
-		}
-		b.state = st
-	}
 
 	// Before any order: in one-way mode the long and the short of a symbol
 	// would be one position.
@@ -231,24 +221,11 @@ func (b *Bot) trade(s config.StrategyConfig, signal bool, lastClose float64) err
 		return nil
 	}
 
-	if s.Martingale > 0 {
-		if err := b.settle(s); err != nil {
-			return fmt.Errorf("martingale: %w", err)
-		}
-	}
-
 	// Positions opened before TP/SL moved onto the position were protected by
 	// two conditional orders: when one fires, the other keeps waiting and would
 	// close the next position at a stale price.
 	if err := b.cancelStaleExits(s); err != nil {
 		return fmt.Errorf("cancel stale exit orders: %w", err)
-	}
-
-	if s.Martingale > 0 {
-		if st := b.state.get(s.Key()); st.Stopped != "" {
-			b.logf(s, "Martingale stopped (%s), remove %s from %s to resume", st.Stopped, s.Key(), b.state.path)
-			return nil
-		}
 	}
 
 	if !signal {
@@ -340,13 +317,6 @@ func (b *Bot) enter(s config.StrategyConfig, inst exchange.Instrument, lastClose
 		return fmt.Errorf("%s balance: %w", inst.QuoteCoin, err)
 	}
 	stake := balance * s.DepositPercent / 100
-	var base float64
-	if s.Martingale > 0 {
-		var ok bool
-		if stake, base, ok, err = b.martingaleStake(s, balance, lastClose); !ok || err != nil {
-			return err
-		}
-	}
 	qty := inst.FloorQty(stake / lastClose)
 	// Bybit rejects orders below minOrderQty or worth less than minNotionalValue
 	// (5 USDT), so a small share of the balance is raised to the minimum while
@@ -411,12 +381,6 @@ func (b *Bot) enter(s config.StrategyConfig, inst exchange.Instrument, lastClose
 			return fmt.Errorf("UNPROTECTED POSITION: TP %s / SL %s: %w; closing at market: %v", tpPrice, slPrice, err, cerr)
 		}
 		return fmt.Errorf("TP %s / SL %s: %w; the position was closed at market", tpPrice, slPrice, err)
-	}
-	if s.Martingale > 0 {
-		deal := &openDeal{Opened: b.now(), Entry: entry, Qty: pos.Size, SLPrice: sl}
-		if err := b.state.update(s.Key(), func(st *seriesState) { st.Base, st.Open = base, deal }); err != nil {
-			b.notifyf(s, "⚠️ %s: не удалось сохранить состояние мартингейла (%v), исход этой сделки не попадёт в серию", title(s), err)
-		}
 	}
 
 	verb := "куплено"

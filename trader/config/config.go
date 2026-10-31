@@ -45,21 +45,12 @@ type StrategyConfig struct {
 	Decimals   *int            `yaml:"decimals"`
 	Indicator1 IndicatorConfig `yaml:"indicator1"`
 	Indicator2 IndicatorConfig `yaml:"indicator2"`
-	// Martingale > 0: after a stop loss the next buy grows so that its take
-	// profit also wins back the series loss times Martingale, as in the
-	// analyzer; deposit_percent is then the first stake of a series.
-	Martingale float64 `yaml:"martingale"`
-	// MaxLosses stops a martingale strategy after this many stop losses in a
-	// row; 0 means no limit.
-	MaxLosses int `yaml:"max_losses"`
 }
 
 type Config struct {
 	Bybit      BybitConfig      `yaml:"bybit"`
 	Telegram   TelegramConfig   `yaml:"telegram"`
 	Strategies []StrategyConfig `yaml:"strategies"`
-	// StateFile keeps the martingale series between restarts.
-	StateFile string `yaml:"state_file"`
 }
 
 func Load(path string) (*Config, error) {
@@ -80,9 +71,6 @@ func Load(path string) (*Config, error) {
 	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
-	}
-	if cfg.StateFile == "" {
-		cfg.StateFile = "state.json"
 	}
 
 	return &cfg, nil
@@ -124,9 +112,6 @@ func (c *Config) Validate() error {
 		if s.DepositPercent <= 0 || s.DepositPercent > 100 {
 			return fmt.Errorf("strategy %s: deposit_percent must be in (0, 100]", s.Symbol)
 		}
-		if s.Martingale < 0 || s.MaxLosses < 0 {
-			return fmt.Errorf("strategy %s: martingale and max_losses must be >= 0", s.Symbol)
-		}
 		if err := s.Indicator1.validate(); err != nil {
 			return fmt.Errorf("strategy %s: indicator1: %w", s.Symbol, err)
 		}
@@ -143,7 +128,7 @@ func (s StrategyConfig) Short() bool {
 	return s.Direction == "sell"
 }
 
-// Key names the strategy in logs, order link ids and state_file: "SOLUSDT-L"
+// Key names the strategy in logs and order link ids: "SOLUSDT-L"
 // for the long, "SOLUSDT-S" for the short.
 func (s StrategyConfig) Key() string {
 	if s.Short() {

@@ -369,25 +369,3 @@ func TestStopOrdersListAndCancel(t *testing.T) {
 		t.Errorf("cancel body = %v", cancelBody)
 	}
 }
-
-func TestGetFilledOrders(t *testing.T) {
-	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		q := r.URL.Query()
-		if r.URL.Path != "/v5/order/history" || q.Get("orderStatus") != "Filled" || q.Get("category") != "linear" || q.Get("symbol") != "SOLUSDT" {
-			t.Errorf("got %s", r.URL)
-		}
-		checkSigned(t, r, r.URL.RawQuery)
-		io.WriteString(w, ok(`{"list":[{"orderId":"9","orderLinkId":"","orderStatus":"Filled","avgPrice":"135.1","cumExecQty":"0.3333",
-			"positionIdx":1,"stopOrderType":"StopLoss","updatedTime":"1760529600000"}]}`))
-	})
-
-	orders, err := c.GetFilledOrders("SOLUSDT")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := Order{OrderID: "9", Status: "Filled", AvgPrice: 135.1, CumExecQty: 0.3333,
-		PositionIdx: 1, StopOrderType: "StopLoss", UpdatedTime: time.UnixMilli(1760529600000).UTC()}
-	if len(orders) != 1 || orders[0] != want {
-		t.Errorf("orders = %+v", orders)
-	}
-}
