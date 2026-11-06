@@ -1,4 +1,4 @@
-# + 539.86% (121)  10.99% ( 85)  [pr/dd:49.12  pr/cnd:0.3178]  ind1:[     ema  OC  1.05]  ind2:[    dema LOC  1.40]  tp:196  sl:162  http://localhost/?tf=4h&tp=196&sl=162&i1=ema,1.05,OC&i2=dema,1.4,LOC
+# + 606.17% (121)  10.99% ( 83)  [pr/dd:55.15  pr/cnd:0.3535]  ind1:[     ema  OC  1.05]  ind2:[    dema LOC  1.40]  tp:196  sl:162  http://localhost/?tf=4h&tp=196&sl=162&i1=ema,1.05,OC&i2=dema,1.4,LOC
 analyzer:
   timeframe: "4h"
 
